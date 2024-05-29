@@ -42,7 +42,7 @@
 
 #### 底层模块 Cells（独立运作、不调用任何其他模块）
 
-⬜ 问答模块 generator.py：通过QChatGPT调用LLM进行问答
+✅ 问答模块 generator.py：通过QChatGPT调用LLM进行问答
 
 ⬜ 配置模块 config.py：为各个功能提供配置保存及加载功能
 
