@@ -40,19 +40,29 @@
 
 ✅ 画饼: 画一个不大不小的饼
 
-⬜ 思考模块：使 AI 可以进行一定的逻辑思考，进行决策，为后续功能做铺垫。
+#### 底层模块 Cells（独立运作、不调用任何其他模块）
 
-⬜ 时间概念：模拟时间推进的状态及行为变化，并引入上下文。
+⬜ 问答模块 generator.py：通过QChatGPT调用LLM进行问答
 
-⬜ 事件模块：根据状态及行为触发事件引入上下文并主动发起消息。
+⬜ 配置模块 config.py：为各个功能提供配置保存及加载功能
 
-⬜ 情绪感知：模拟当前场景情绪，并做出相应反馈。
+#### 基础模块 Organs
 
-⬜ 记忆数据库：自动总结对话内容并导入记忆数据库，根据用户的提问引入上下文，从而实现长时记忆。
+⬜ 时间模块 timeline.py：模拟时间推进，改变Bot状态、情绪，触发事件。
 
-⬜ 联网搜索：根据用户的信息，自主构造搜索决策，并引入上下文。
+⬜ 思考模块 thoughts.py：使Bot通过预定义的思考链进行思考决策。
 
-⬜ AI 绘图支持，将绘图引入思考链，使 AI 可以生成图片，例如 AI 自拍
+#### 功能实现 Systems
+
+⬜ 事件 events.py：根据状态及行为触发事件引入上下文并主动发起消息。
+
+⬜ 情绪感知 emotions.py：模拟当前场景情绪，并做出相应反馈。
+
+⬜ 记忆数据库 memories.py：自动总结对话内容并导入记忆数据库，根据用户的提问引入上下文，从而实现长时记忆。
+
+⬜ 联网搜索 searching.py：根据用户的信息，自主构造搜索决策，并引入上下文。
+
+⬜ AI 绘图支持 portrait.py：将绘图引入思考链，使 AI 可以生成图片，例如 AI 自拍
 
 ## 安装💻
 
@@ -70,4 +80,5 @@
 ## 鸣谢🎉
 
 感谢 [QChatGPT](https://github.com/RockChinQ/QChatGPT) 提供Bot功能及其他基础方法
+
 感谢 [CyberWaifu](https://github.com/Syan-Lin/CyberWaifu) [koishi-plugin-oobabooga-testbot](https://github.com/HunterShenSmzh/koishi-plugin-oobabooga-testbot) 提供的思路和代码
