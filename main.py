@@ -1,5 +1,6 @@
 import asyncio
 import typing
+import os
 from datetime import datetime
 from mirai import MessageChain
 from pkg.plugin.context import register, handler, BasePlugin, APIHost, EventContext
@@ -36,6 +37,7 @@ class Waifu(BasePlugin):
     def __init__(self, host: APIHost):
         self.host = host
         self.ap = host.ap
+        self._ensure_directories_exist()
         self._generator = Generator(host)
         self._memory = Memory(host)
         self._narrator = Narrator(host)
@@ -166,6 +168,22 @@ class Waifu(BasePlugin):
         await self._cards.load_config(self._character)
         await self._narrator.load_config(self._cards.get_profile())  # 在cards之后加载
         await self._thoughts.load_config()
+        self.set_permissions_recursively("plugins/Waifu/water", 0o777)
+
+    def _ensure_directories_exist(self):
+        directories = ["plugins/Waifu/water/cards", "plugins/Waifu/water/config", "plugins/Waifu/water/data"]
+
+        for directory in directories:
+            if not os.path.exists(directory):
+                os.makedirs(directory)
+                self.ap.logger.info(f"Directory created: {directory}")
+
+    def set_permissions_recursively(self, path, mode):
+        for root, dirs, files in os.walk(path):
+            for dirname in dirs:
+                os.chmod(os.path.join(root, dirname), mode)
+            for filename in files:
+                os.chmod(os.path.join(root, filename), mode)
 
     async def request_assistant_reply(self, ctx: EventContext, msg: str = ""):
         current_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
