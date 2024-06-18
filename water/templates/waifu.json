@@ -1,0 +1,17 @@
+{
+    "character": "default",
+    "intervals": [
+        300,
+        600,
+        1800,
+        3600
+    ],
+    "narrat_max_conversations": 8,
+    "analyze_max_conversations": 9,
+    "value_game_conversations": 5,
+    "short_term_memory_size": 40,
+    "memory_batch_size": 20,
+    "summarization_mode": true,
+    "retrieve_top_n": 3,
+    "summary_min_tags": 20
+}
