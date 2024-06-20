@@ -181,14 +181,14 @@ class Generator:
             content = str(message.get_content_mirai_message_chain()).split("] ", 1)[-1]
 
             if role == "narrator":
-                conversations_str += f"然后{content}，"
+                conversations_str += f"{self.to_custom_names(content)}"
             else:
                 listener = self._assistant_name
                 if speakers:  # 聆听者为上一个发言者
                     listener = speakers[-1]
                 elif role == self._assistant_name:
                     listener = self._user_name
-                conversations_str += f"{role}对{listener}说：“{content}”，"
+                conversations_str += f"{role}对{listener}说：“{content}”。"
                 if role in speakers: # 该容器兼顾保存最后一个发言者，不是单纯的set
                     speakers.remove(role)
                 speakers.append(role)

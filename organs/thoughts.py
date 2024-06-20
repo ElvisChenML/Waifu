@@ -52,7 +52,7 @@ class Thoughts:
     async def generate_user_prompt(self, conversations: typing.List[llm_entities.Message] = [], background: str = "", manner: str = "") -> typing.Tuple[str, str]:
         analysis = await self.analyze_conversations(conversations, background)
         _, conversations_str = self._generator.get_conversations_str_for_prompt(conversations)
-        user_prompt = f"这是之前的记录：“{conversations_str}”，经过分析记录，你得出“{analysis}”。作为{self._assistant_name}，"
+        user_prompt = f"这是之前的记录：“{conversations_str}”，经过分析记录，你得出“{analysis}”。你作为{self._assistant_name}，"
 
         last_speaker = self._generator.get_last_speaker(conversations)
         last_role = self._generator.get_last_role(conversations)
@@ -61,7 +61,7 @@ class Thoughts:
         if last_role == "narrator":
             user_prompt += f"你根据最后发生的事情“{last_content}”对{last_speaker}做出适当的回复。"
         else:
-            user_prompt += f"你要对{last_speaker}对你说的“{last_content}”做出适当的回复。"
+            user_prompt += f"你要对{last_speaker}说的“{last_content}”对{last_speaker}做出适当的回复。"
 
         user_prompt += f"请确认你记得<background>“{background}”，请确认你的回复符合你的<manner>“{manner}”。只提供回复内容，不需要其他说明。"
 

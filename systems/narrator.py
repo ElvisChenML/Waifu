@@ -46,24 +46,7 @@ class Narrator:
 
     async def _narrate_simple(self, conversations: typing.List[llm_entities.Message]) -> str:
         conversations = conversations[-self._narrat_max_conversations:]
-        self._action = await self.analyze_current_action(conversations)
-        self.ap.logger.info("current_action: {}".format(self._action))
-        narration = await self._narrate_by_action(conversations)
-        return narration
 
-    async def _narrate_by_action(self, conversations: typing.List[llm_entities.Message]) -> str:
-        system_prompt = """你的存在只是为了通过100字以内的描述性文字推动故事发展，你会积极推进故事并引入意外和不可预测的元素。你不会总结过去事件，只会描述新的行为。你会不惜一切代价避免重复，不会重复已经描述过的行为或想法。你只会描述场景中的可观察行为。你会确保你的描述在考虑时间因素和对话上下文后感觉自然。"""
-
-        _, conversations_str = self._generator.get_conversations_str_for_prompt(conversations)
-        user_prompt = f"""对互动“{self._action}”进行简短描述。请确认描述与记录“{conversations_str}”情境及语气相符合。你会确保你的描述语句通顺并且在考虑记录上下文后感觉自然。不可以在描述中替role发言。"""
-
-        narration = await self._generator.return_string(user_prompt, [], system_prompt)
-        return narration
-
-    def get_action(self) -> str:
-        return self._generator.to_custom_names(self._action)
-
-    async def analyze_current_action(self, conversations: typing.List[llm_entities.Message]) -> str:
         time_text, description = await self.get_assistant_life_description()
         user_prompt = f"""现在是{time_text}，{self._assistant_name}往常这时候在“{description}。”"""
 
@@ -72,15 +55,15 @@ class Narrator:
         last_role = self._generator.get_last_role(conversations)
         last_content = self._generator.get_last_content(conversations)
         if last_role == "narrator":
-            user_prompt += f"""请分析“{conversations_str}”中“{last_content}”里“{"、".join(speakers)}”之间的物理互动，推测并描述他们后续的物理互动。"""
+            user_prompt += f"""续写“{conversations_str}”中“{"、".join(speakers)}”之间的物理互动。"""
         else:
-            user_prompt += f"""请分析“{conversations_str}”中{last_speaker}说“{last_content}”时与{"、".join(speakers)}之间的物理互动，推测并描述他们后续的物理互动。"""
+            user_prompt += f"""续写“{conversations_str}”中{last_speaker}说“{last_content}”后{"、".join(speakers)}之间的物理互动。"""
+        user_prompt += f"""续写应为记录中互动的延续，自然的衔接。不需要在续写中描述过去的互动。每个互动都应以{"、".join(speakers)}其中一个开头，明确谁在进行互动。”。续写应富有创意、明确且诱人。只提供一个50字以内的物理互动描述，不需要其他说明。不可以在续写中替“{"、".join(speakers)}”发言。"""
+        self._action = await self._generator.return_string(user_prompt)
+        return self._action
 
-        if self._action:
-            user_prompt += f"""描述的物理互动必须与之前发生过的“{self._action}”状态不同。"""
-        user_prompt += f"""每个互动都应以“assistant”或{last_speaker}开头，明确谁在进行互动。”。描述应富有创意、明确且诱人。只提供一个30字以内的物理互动描述，不需要其他说明。"""
-        analysis_result = await self._generator.return_string(user_prompt)
-        return analysis_result
+    def get_action(self) -> str:
+        return self._action
 
     def _get_time_passed(self, conversations: typing.List[llm_entities.Message]) -> int:
         latest_response = self._generator.clean_response(conversations[-1].readable_str())

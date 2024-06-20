@@ -32,7 +32,7 @@ COMMANDS = {
 }
 
 
-@register(name="Waifu", description="Cuter than real waifu!", version="0.1", author="ElvisChenML")
+@register(name="Waifu", description="Cuter than real waifu!", version="1.0", author="ElvisChenML")
 class Waifu(BasePlugin):
     def __init__(self, host: APIHost):
         self.host = host
@@ -248,9 +248,6 @@ class Waifu(BasePlugin):
             current_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
             narration = self._generator.to_generic_names(narration)  # Ensure characters in stored narrations remain consistent in any context
             await self._memory.save_memory(role="narrator", content=narration, time=current_time)
-
-            # 请Waifu对旁白进行回复
-            await self.request_assistant_reply(ctx)
 
     def __del__(self):
         if self._timer_task:
