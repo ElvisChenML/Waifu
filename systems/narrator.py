@@ -55,10 +55,10 @@ class Narrator:
         last_role = self._generator.get_last_role(conversations)
         last_content = self._generator.get_last_content(conversations)
         if last_role == "narrator":
-            user_prompt += f"""续写“{conversations_str}”中“{"、".join(speakers)}”之间的物理互动。"""
+            user_prompt += f"""续写“{conversations_str}”中“{"、".join(speakers)}”之后的身体动作。"""
         else:
-            user_prompt += f"""续写“{conversations_str}”中{last_speaker}说“{last_content}”后{"、".join(speakers)}之间的物理互动。"""
-        user_prompt += f"""续写应为记录中互动的延续，自然的衔接。不需要在续写中描述过去的互动。每个互动都应以{"、".join(speakers)}其中一个开头，明确谁在进行互动。”。续写应富有创意、明确且诱人。只提供一个50字以内的物理互动描述，不需要其他说明。不可以在续写中替“{"、".join(speakers)}”发言。"""
+            user_prompt += f"""分析“{conversations_str}”中{"、".join(speakers)}的身体动作并续写之后的身体动作。"""
+        user_prompt += f"""不需要描述目前的身体动作，续写应与目前身体动作自然的衔接。每个身体动作都应以{"、".join(speakers)}其中一个开头，明确谁在进行身体动作。”。续写应富有创意、明确且诱人。只提供一个30字以内的身体动作描述，不需要其他说明。不可以在续写中替“{"、".join(speakers)}”发言。"""
         self._action = await self._generator.return_string(user_prompt)
         return self._action
 

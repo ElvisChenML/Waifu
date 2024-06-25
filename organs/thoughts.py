@@ -39,7 +39,7 @@ class Thoughts:
 
         last_role = self._generator.get_last_role(conversations)
         last_content = self._generator.get_last_content(conversations)
-        user_prompt = f"参考{self._assistant_name}的背景设定：“{background}”，根据记录，请站在{self._assistant_name}的角度"
+        user_prompt = f"参考{self._assistant_name}的背景设定：“{background}”，请站在{self._assistant_name}的角度"
         if last_role == "narrator":
             user_prompt += f"""分析“{conversations_str}”中“{last_content}”里“{"、".join(speakers)}”之间的行为及事件。"""
         else:
