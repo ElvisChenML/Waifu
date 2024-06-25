@@ -128,6 +128,12 @@ class Memory:
             else:
                 self.short_term_memory = self.short_term_memory[self._short_term_memory_size:]
 
+    async def remove_last_memory(self) -> str:
+        if self.short_term_memory:
+            last_conversation = self.short_term_memory.pop().get_content_mirai_message_chain()
+            self._save_short_term_memory_to_file()
+            return last_conversation
+
     async def load_memory(self, conversation: llm_entities.Message) -> typing.List[str]:
         if not self._long_term_memory:
             return []

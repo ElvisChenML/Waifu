@@ -2,7 +2,7 @@ import asyncio
 import typing
 import os
 from datetime import datetime
-from mirai import MessageChain
+from mirai import MessageChain # type: ignore
 from pkg.plugin.context import register, handler, BasePlugin, APIHost, EventContext
 from pkg.plugin.events import PersonNormalMessageReceived
 from pkg.core.bootutils import config
@@ -25,6 +25,7 @@ COMMANDS = {
     "旁白": "主动触发旁白推进剧情，用法：[旁白]。",
     "时间表": "列出模型生成的Waifu时间表，用法：[时间表]。",
     "控制人物": "控制角色行动或发言，用法：[控制人物][角色名称/assistant]|[发言/(行动)]。",
+    "撤回": "从短期记忆中删除最后的对话，用法：[撤回]。",
     "请设计": "调试：设计一个列表，用法：[请设计][设计内容]。",
     "请选择": "调试：从给定列表中选择，用法：[请选择][问题]|[选项1,选项2,……]。",
     "回答数字": "调试：返回数字答案，用法：[回答数字][问题]。",
@@ -135,6 +136,9 @@ class Waifu(BasePlugin):
                 await self._memory.save_memory(role=role, content=prompt, time=current_time)
                 msg = "" # 清空msg以告诉后续函数非user发言
             need_assistant_reply = True
+        elif msg == "撤回":
+            response = f"已撤回：\n{await self._memory.remove_last_memory()}"
+            need_assistant_reply = False
         elif msg == "列出命令":
             response = self._list_commands()
             need_assistant_reply = False
