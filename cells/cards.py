@@ -1,12 +1,13 @@
 import typing
-from pkg.core.bootutils import config
+import re
 from pkg.plugin.context import APIHost
+from plugins.Waifu.cells.config import ConfigManager
+
 
 class Cards:
     def __init__(self, host: APIHost):
         self.host = host
         self.ap = host.ap
-        self._character_config = {}
         self._user_name = "用户"
         self._assistant_name = "助手"
         self._language = "简体中文"
@@ -20,26 +21,19 @@ class Cards:
         self._init = ""
         self._current = []
 
-    async def load_config(self, character: str):
-        self._character_config = await config.load_json_config(
-            f"plugins/Waifu/water/cards/{character}.json",
-            "plugins/Waifu/water/templates/default_card.json",
-            completion=False,
-        )
-        self._parse_system_prompt()
-
-    def _parse_system_prompt(self):
-        system_prompt = self._character_config.data.get("system_prompt", {})
-        self._user_name = system_prompt.get("user_name", "用户")
-        self._assistant_name = system_prompt.get("assistant_name", "助手")
-        self._language = system_prompt.get("language", "简体中文")
-        self._profile = system_prompt.get("Profile", [])
-        self._skills = system_prompt.get("Skills", [])
-        self._background = system_prompt.get("Background", [])
-        self._background.append(f"你是{self._assistant_name}，我是{self._user_name}。")
-        self._output_format = system_prompt.get("OutputFormat", [])
-        self._rules = system_prompt.get("Rules", [])
-        self._init = system_prompt.get("Init", "")
+    async def load_config(self, character: str, launcher_type: str):
+        config = ConfigManager(f"plugins/Waifu/water/cards/{character}", f"plugins/Waifu/water/templates/default_{launcher_type}")
+        await config.load_config(completion=False)
+        self._user_name = config.data.get("user_name", "用户")
+        self._assistant_name = config.data.get("assistant_name", "助手")
+        self._language = config.data.get("language", "简体中文")
+        self._profile = config.data.get("Profile", [])
+        self._skills = config.data.get("Skills", [])
+        self._background = config.data.get("Background", [])
+        if launcher_type == "person":
+            self._background.append(f"你是{self._assistant_name}，我是{self._user_name}。")
+        self._rules = config.data.get("Rules", [])
+        self._init = config.data.get("Init", "")
         self._current = []
 
     def set_memory(self, memories: typing.List[str]):
@@ -66,33 +60,41 @@ class Cards:
 
     def _collect_prompt_sections(self) -> typing.List[typing.Tuple[str, typing.Any]]:
         return [
-            ("# Role", self._assistant_name),
-            ("## Profile", self._profile),
-            ("## Skills", self._skills),
-            ("## Background", self._background),
-            ("## OutputFormat", self._output_format),
-            ("## Rules", self._rules),
-            ("## Manner", self._manner),
-            ("## Memories", self._memories),
-            ("## Current", self._current),
-            ("## Init", self._generate_init_section())
+            ("Profile", [f"你叫{self._assistant_name}。"] + self._profile),
+            ("Skills", self._skills),
+            ("Background", self._background),
+            ("Memories", self._memories),
+            ("Current", self._current),
+            ("Init", self.get_init_section()),
         ]
 
-    def _generate_init_section(self) -> str:
-        init_parts = [f"作为<Role>"]
+    def get_init_section(self) -> str:
+        init_parts = []
         if self._rules:
-            init_parts.append("，你必须遵守<Rules>")
+            init_parts.append(self._list_to_prompt_str(self._rules, "你必须遵守"))
         if self._manner:
-            init_parts.append("，你必须遵守<Manner>")
+            init_parts.append(self._list_to_prompt_str(self._manner, "你必须遵守"))
         if self._language:
-            init_parts.append("，你必须用默认的<language>与我交谈")
-        init_parts.append("。")
+            init_parts.append(f"你必须用默认的{self._language}与我交谈。")
         return "".join(init_parts)
 
     def _assemble_prompt(self, sections: typing.List[typing.Tuple[str, typing.Any]]) -> str:
-        prompt_parts = [f"# Role: {self._assistant_name}\n"]
+        prompt_parts = []
         for title, content_list in sections:
             if content_list:
-                content = "\n".join(content_list) if isinstance(content_list, list) else content_list
-                prompt_parts.append(f"{title}\n{content}\n")
+                prompt_parts.append(f"{title}\n{self._list_to_prompt_str(content_list)}\n")
         return "".join(prompt_parts)
+
+    def _ensure_punctuation(self, text: str) -> str:
+        # 定义中英文标点符号
+        punctuation = r"[。.，,？?；;]"
+        # 如果末尾没有标点符号，则添加一个句号
+        if not re.search(punctuation + r"$", text):
+            return text + "。"
+        return text
+
+    def _list_to_prompt_str(self, content_list: list, prefix: str = "") -> str:
+        if isinstance(content_list, list):
+            return "".join([prefix + self._ensure_punctuation(item) for item in content_list])
+        else:
+            return self._ensure_punctuation(content_list)

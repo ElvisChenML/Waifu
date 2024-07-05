@@ -3,15 +3,12 @@ import typing
 import re
 from pkg.plugin.context import APIHost
 from pkg.provider import entities as llm_entities
-from pkg.core.bootutils import config
 
 
 class Generator:
     def __init__(self, host: APIHost):
         self.host = host
         self.ap = host.ap
-        self._user_name = "用户"
-        self._assistant_name = "助手"
 
     def get_full_prompts(
         self, user_prompt: str, conversations: typing.List[llm_entities.Message] = [], output_format: str = "JSON list", system_prompt: str = None
@@ -110,20 +107,6 @@ class Generator:
             self.ap.logger.info("Unexpected reply: {}".format(response))
             return "Unexpected reply"
 
-    async def set_character(self, character: str):
-        self._character_config = await config.load_json_config(
-            f"plugins/Waifu/water/cards/{character}.json",
-            "plugins/Waifu/water/templates/default_card.json",
-            completion=False,
-        )
-        system_prompt = self._character_config.data.get("system_prompt", {})
-        self._user_name = system_prompt.get("user_name", "用户")
-        self._assistant_name = system_prompt.get("assistant_name", "助手")
-
-    def set_names(self, user_name: str, assistant_name: str):
-        self._user_name = user_name
-        self._assistant_name = assistant_name
-
     def _parse_json_list(self, response: str, generate_tags: bool = False) -> list:
         try:
             # Fix unbalanced square brackets and quotes in the whole response
@@ -171,55 +154,3 @@ class Generator:
 
     def messages_to_readable_str(self, messages: typing.List[llm_entities.Message]) -> str:
         return "\n".join(message.readable_str() for message in messages)
-
-    def get_conversations_str_for_prompt(self, conversations: typing.List[llm_entities.Message]) -> typing.Tuple[typing.List[str], str]:
-        speakers = []
-        conversations_str = ""
-        for message in conversations:
-            role = self.to_custom_names(message.role)
-            # 提取括号后的内容
-            content = str(message.get_content_mirai_message_chain()).split("] ", 1)[-1]
-
-            if role == "narrator":
-                conversations_str += f"{self.to_custom_names(content)}"
-            else:
-                listener = self._assistant_name
-                if speakers:  # 聆听者为上一个发言者
-                    listener = speakers[-1]
-                elif role == self._assistant_name:
-                    listener = self._user_name
-                conversations_str += f"{role}对{listener}说：“{content}”。"
-                if role in speakers: # 该容器兼顾保存最后一个发言者，不是单纯的set
-                    speakers.remove(role)
-                speakers.append(role)
-        return speakers, conversations_str
-
-    def get_last_speaker(self, conversations: typing.List[llm_entities.Message]) -> str:
-        for message in reversed(conversations):
-            if message.role not in {"narrator", "assistant"}:
-                return self.to_custom_names(message.role)
-        return ""
-
-    def get_last_role(self, conversations: typing.List[llm_entities.Message]) -> str:
-        return self.to_custom_names(conversations[-1].role) if conversations else ""
-
-    def get_last_content(self, conversations: typing.List[llm_entities.Message]) -> str:
-        return str(conversations[-1].get_content_mirai_message_chain()).split("] ", 1)[-1] if conversations else ""
-
-    def to_custom_names(self, text: str) -> str:
-        text = text.replace("User", self._user_name)
-        text = text.replace("user", self._user_name)
-        text = text.replace("用户", self._user_name)
-        text = text.replace("Assistant", self._assistant_name)
-        text = text.replace("assistant", self._assistant_name)
-        text = text.replace("助理", self._assistant_name)
-        return text
-
-    def to_generic_names(self, text: str) -> str:
-        text = text.replace("User", "user")
-        text = text.replace("用户", "user")
-        text = text.replace("Assistant", "assistant")
-        text = text.replace("助理", "assistant")
-        text = text.replace(self._user_name, "user")
-        text = text.replace(self._assistant_name, "assistant")
-        return text

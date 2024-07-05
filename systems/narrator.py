@@ -6,54 +6,31 @@ from pkg.plugin.context import APIHost
 from pkg.core.bootutils import config
 from pkg.provider import entities as llm_entities
 from plugins.Waifu.cells.generator import Generator
+from plugins.Waifu.organs.memories import Memory
 
 
 class Narrator:
-    def __init__(self, host: APIHost):
+
+    def __init__(self, host: APIHost, launcher_id: str):
         self.host = host
         self.ap = host.ap
         self._generator = Generator(host)
-        self._user_name = "用户"
-        self._assistant_name = "助手"
-        self._life_data_file = "plugins/Waifu/water/data/life.json"
+        self._life_data_file = f"plugins/Waifu/water/data/life_{launcher_id}.json"
         self._profile = ""
         self._action = ""
         self._life_data = {}
-        self._narrat_max_conversations = 8
 
-    async def load_config(self, profile: str):
-        self._config = await config.load_json_config(
-            "plugins/Waifu/water/config/waifu.json",
-            "plugins/Waifu/water/templates/waifu.json",
-            completion=False,
-        )
-        self._narrat_max_conversations = self._config.data.get("narrat_max_conversations", 8)
-        character = self._config.data["character"]
-        self._character_config = await config.load_json_config(
-            f"plugins/Waifu/water/cards/{character}.json",
-            "plugins/Waifu/water/templates/default_card.json",
-            completion=False,
-        )
-        system_prompt = self._character_config.data.get("system_prompt", {})
-        self._user_name = system_prompt.get("user_name", "用户")
-        self._assistant_name = system_prompt.get("assistant_name", "助手")
-        self._generator.set_names(self._user_name, self._assistant_name)
-        self._profile = profile
+    async def load_config(self):
         self._load_life_data()
 
-    async def narrate(self, conversations: typing.List[llm_entities.Message]) -> str:
-        return await self._narrate_simple(conversations)
+    async def narrate(self, memory: Memory, profile: str) -> str:
+        conversations = memory.short_term_memory[-memory.narrate_max_conversations :]
 
-    async def _narrate_simple(self, conversations: typing.List[llm_entities.Message]) -> str:
-        conversations = conversations[-self._narrat_max_conversations:]
+        time_text, description = await self.get_assistant_life_description(profile)
+        user_prompt = f"""现在是{time_text}，{memory.assistant_name}往常这时候在“{description}。”"""
 
-        time_text, description = await self.get_assistant_life_description()
-        user_prompt = f"""现在是{time_text}，{self._assistant_name}往常这时候在“{description}。”"""
-
-        speakers, conversations_str = self._generator.get_conversations_str_for_prompt(conversations)
-        last_speaker = self._generator.get_last_speaker(conversations)
-        last_role = self._generator.get_last_role(conversations)
-        last_content = self._generator.get_last_content(conversations)
+        speakers, conversations_str = memory.get_conversations_str_for_person(conversations)
+        last_role = memory.get_last_role(conversations)
         if last_role == "narrator":
             user_prompt += f"""续写“{conversations_str}”中“{"、".join(speakers)}”之后的身体动作。"""
         else:
@@ -94,8 +71,8 @@ class Narrator:
 
         return f"{day_of_week}{period}"
 
-    async def _generate_life_description(self, time_text: str):
-        user_prompt = f"""作为“{self._profile}”在{time_text}时往常会在哪里？只提供位置名称，不需要任何解释。"""
+    async def _generate_life_description(self, profile: str, time_text: str):
+        user_prompt = f"""作为“{profile}”在{time_text}时往常会在哪里？只提供位置名称，不需要任何解释。"""
         location = await self._generator.return_string(user_prompt, [])
         self._life_data[time_text] = location
 
@@ -109,10 +86,10 @@ class Narrator:
         except FileNotFoundError:
             self._life_data = {}
 
-    async def get_assistant_life_description(self) -> typing.Tuple[str, str]:
+    async def get_assistant_life_description(self, profile: str) -> typing.Tuple[str, str]:
         current_time_text = self._get_current_time_text()
         if current_time_text not in self._life_data:
-            await self._generate_life_description(current_time_text)
+            await self._generate_life_description(profile, current_time_text)
         description = self._life_data.get(current_time_text, "")
         return current_time_text, description
 

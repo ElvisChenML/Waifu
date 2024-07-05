@@ -5,14 +5,23 @@ import os
 from plugins.Waifu.cells.generator import Generator
 from pkg.plugin.context import APIHost
 from pkg.provider import entities as llm_entities
-from pkg.core.bootutils import config
+from plugins.Waifu.cells.config import ConfigManager
 
 
 class Memory:
-    def __init__(self, host: APIHost):
+    def __init__(self, host: APIHost, launcher_id: str, launcher_type: str):
         self.host = host
         self.ap = host.ap
         self.short_term_memory: typing.List[llm_entities.Message] = []
+        self.analyze_max_conversations = 9
+        self.narrate_max_conversations = 8
+        self.value_game_max_conversations = 5
+        self.response_min_conversations = 5
+        self.response_rate = 0.7
+        self.user_name = "用户"
+        self.assistant_name = "助手"
+        self._launcher_id = launcher_id
+        self._launcher_type = launcher_type
         self._generator = Generator(host)
         self._long_term_memory: typing.List[typing.Tuple[str, typing.List[str]]] = []
         self._tags_index = {}
@@ -20,25 +29,36 @@ class Memory:
         self._memory_batch_size = 50
         self._retrieve_top_n = 5
         self._summary_min_tags = 20
-        self._long_term_memory_file = "plugins/Waifu/water/data/memories.json"
-        self._conversations_file = "plugins/Waifu/water/data/conversations.log"
-        self._short_term_memory_file = "plugins/Waifu/water/data/short_term_memory.json"
+        self._long_term_memory_file = f"plugins/Waifu/water/data/memories_{launcher_id}.json"
+        self._conversations_file = f"plugins/Waifu/water/data/conversations_{launcher_id}.log"
+        self._short_term_memory_file = f"plugins/Waifu/water/data/short_term_memory_{launcher_id}.json"
         self._summarization_mode = False
         self._load_long_term_memory_from_file()
         self._load_short_term_memory_from_file()
+        self._status_file = ""
 
-    async def load_config(self):
-        self._config = await config.load_json_config(
-            "plugins/Waifu/water/config/waifu.json",
-            "plugins/Waifu/water/templates/waifu.json",
-            completion=False,
-        )
-        self._short_term_memory_size = self._config.data["short_term_memory_size"]
-        self._memory_batch_size = self._config.data["memory_batch_size"]
-        self._retrieve_top_n = self._config.data["retrieve_top_n"]
-        self._summary_min_tags = self._config.data["summary_min_tags"]
-        self._summarization_mode = self._config.data.get("summarization_mode", False)
-        await self._generator.set_character(self._config.data["character"])
+    async def load_config(self, character: str, launcher_id: str, launcher_type: str):
+        self._status_file = f"plugins/Waifu/water/data/{character}_{launcher_id}.json"
+
+        waifu_config = ConfigManager(f"plugins/Waifu/water/config/waifu", "plugins/Waifu/water/templates/waifu", launcher_id)
+        await waifu_config.load_config(completion=True)
+
+        self._short_term_memory_size = waifu_config.data["short_term_memory_size"]
+        self._memory_batch_size = waifu_config.data["memory_batch_size"]
+        self._retrieve_top_n = waifu_config.data["retrieve_top_n"]
+        self._summary_min_tags = waifu_config.data["summary_min_tags"]
+        self._summarization_mode = waifu_config.data.get("summarization_mode", False)
+
+        self.analyze_max_conversations = waifu_config.data.get("analyze_max_conversations", 9)
+        self.narrate_max_conversations = waifu_config.data.get("narrat_max_conversations", 8)
+        self.value_game_max_conversations = waifu_config.data.get("value_game_max_conversations", 5)
+        self.response_min_conversations = waifu_config.data.get("response_min_conversations", 5)
+        self.response_rate = waifu_config.data.get("response_rate", 0.7)
+
+        character_config = ConfigManager(f"plugins/Waifu/water/cards/{character}", f"plugins/Waifu/water/templates/default_{launcher_type}")
+        await character_config.load_config(completion=False)
+        self.user_name = character_config.data.get("user_name", "用户")
+        self.assistant_name = character_config.data.get("assistant_name", "助手")
 
     async def _tag_conversations(self, conversations: typing.List[llm_entities.Message]) -> typing.Tuple[str, typing.List[str]]:
         if len(conversations) > 1:
@@ -48,7 +68,7 @@ class Memory:
             memory = conversations[0].content
             user_prompt_tags = f"请为这段文字“{memory}”生成有意义且具有代表性的标签。"
 
-        user_prompt_tags += f"""关注对话中的关键信息和主要讨论主题。提供至少{self._summary_min_tags}个标签。忽略时间戳和不相关的细节。确保输出是仅包含标签的有效JSON列表。不要包含任何附加信息、评论或解释。标签应格式为单词或简短短语，每个标签不超过3个字。"""
+        user_prompt_tags += f"""关注对话中的关键信息和主要讨论主题。提供至少{self._summary_min_tags}个简体中文标签。忽略时间戳和不相关的细节。确保输出是仅包含标签的有效JSON列表。不要包含任何附加信息、评论或解释。标签应格式为单词或简短短语，每个标签不超过3个字。"""
 
         system_prompt_tags = "你是总结对话并生成简明标签的专家。确保输出是仅包含标签的有效 JSON 列表。不要包含任何附加信息、评论或解释。"
 
@@ -56,7 +76,7 @@ class Memory:
         return memory, tags
 
     async def _generate_summary(self, conversations: typing.List[llm_entities.Message]) -> str:
-        _, conversations_str = self._generator.get_conversations_str_for_prompt(conversations)
+        _, conversations_str = self.get_conversations_str_for_person(conversations)
         user_prompt_summary = f"""总结以下对话中的最重要细节和事件: "{conversations_str}"。将总结限制在200字以内。总结应使用中文书写，并以过去式书写。你的回答应仅包含总结。"""
 
         return await self._generator.return_string(user_prompt_summary)
@@ -134,10 +154,10 @@ class Memory:
             self._save_short_term_memory_to_file()
             return last_conversation
 
-    async def load_memory(self, conversation: llm_entities.Message) -> typing.List[str]:
+    async def load_memory(self, conversations: typing.List[llm_entities.Message]) -> typing.List[str]:
         if not self._long_term_memory:
             return []
-        _, tags = await self._tag_conversations([conversation])
+        _, tags = await self._tag_conversations(conversations)
         return self._retrieve_related_memories(tags)
 
     def get_all_memories(self) -> str:
@@ -152,8 +172,9 @@ class Memory:
             self._long_term_memory_file,
             self._conversations_file,
             self._short_term_memory_file,
-            "plugins/Waifu/water/cards/default.json",
-            "plugins/Waifu/water/data/life.json"
+            self._status_file,
+            f"plugins/Waifu/water/cards/default_{self._launcher_type}.yaml",
+            f"plugins/Waifu/water/data/life_{self._launcher_id}.json",
         ]
 
         for file in files_to_delete:
@@ -224,3 +245,78 @@ class Memory:
             self.ap.logger.error(f"Error decoding JSON from memory file '{self._short_term_memory_file}': {e}. Starting with empty memory.")
         except Exception as e:
             self.ap.logger.error(f"Unexpected error loading memory file '{self._short_term_memory_file}': {e}")
+
+    def get_conversations_str_for_person(self, conversations: typing.List[llm_entities.Message]) -> typing.Tuple[typing.List[str], str]:
+        speakers = []
+        conversations_str = ""
+        listener = self.assistant_name
+        for message in conversations:
+            role = self.to_custom_names(message.role)
+            # 提取括号后的内容
+            content = str(message.get_content_mirai_message_chain()).split("] ", 1)[-1]
+
+            if role == "narrator":
+                conversations_str += f"{self.to_custom_names(content)}"
+            else:                
+                if speakers:  # 聆听者为上一个发言者
+                    if role != speakers[-1]: # 不为连续发言
+                        listener = speakers[-1]
+                elif role == self.assistant_name: # 仅speaker为空时生效
+                    listener = self.user_name
+                conversations_str += f"{role}对{listener}说：“{content}”。"
+                if role in speakers:  # 该容器兼顾保存最后一个发言者，不是单纯的set
+                    speakers.remove(role)
+                speakers.append(role)
+        return speakers, conversations_str
+
+    def get_conversations_str_for_group(self, conversations: typing.List[llm_entities.Message]) -> str:
+        conversations_str = ""
+        for message in conversations:
+            role = message.role
+            if role == "assistant":
+                role = "你"
+            # 提取括号后的内容
+            content = str(message.get_content_mirai_message_chain()).split("] ", 1)[-1]
+            conversations_str += f"{role}说：“{content}”。"
+        return conversations_str
+
+    def get_unreplied_msg(self, unreplied_msg: int) -> typing.Tuple[int, typing.List[llm_entities.Message]]:
+        count = 0  # 未回复的数量 + 穿插的自己发言的数量 用以正确区分 replied 及 unreplied 分界线
+        messages = []
+        for message in reversed(self.short_term_memory):
+            count += 1
+            if message.role != "assistant":
+                messages.insert(0, message)
+                if len(messages) >= unreplied_msg:
+                    return count, messages
+        return count, messages
+
+    def get_last_speaker(self, conversations: typing.List[llm_entities.Message]) -> str:
+        for message in reversed(conversations):
+            if message.role not in {"narrator", "assistant"}:
+                return self.to_custom_names(message.role)
+        return ""
+
+    def get_last_role(self, conversations: typing.List[llm_entities.Message]) -> str:
+        return self.to_custom_names(conversations[-1].role) if conversations else ""
+
+    def get_last_content(self, conversations: typing.List[llm_entities.Message]) -> str:
+        return str(conversations[-1].get_content_mirai_message_chain()).split("] ", 1)[-1] if conversations else ""
+
+    def to_custom_names(self, text: str) -> str:
+        text = text.replace("User", self.user_name)
+        text = text.replace("user", self.user_name)
+        text = text.replace("用户", self.user_name)
+        text = text.replace("Assistant", self.assistant_name)
+        text = text.replace("assistant", self.assistant_name)
+        text = text.replace("助理", self.assistant_name)
+        return text
+
+    def to_generic_names(self, text: str) -> str:
+        text = text.replace("User", "user")
+        text = text.replace("用户", "user")
+        text = text.replace("Assistant", "assistant")
+        text = text.replace("助理", "assistant")
+        text = text.replace(self.user_name, "user")
+        text = text.replace(self.assistant_name, "assistant")
+        return text

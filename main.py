@@ -1,12 +1,15 @@
 import asyncio
 import typing
 import os
+import mirai
+import random
+import re
 from datetime import datetime
-from mirai import MessageChain # type: ignore
+from mirai import MessageChain
 from pkg.plugin.context import register, handler, BasePlugin, APIHost, EventContext
-from pkg.plugin.events import PersonNormalMessageReceived
-from pkg.core.bootutils import config
+from pkg.plugin.events import PersonNormalMessageReceived, GroupNormalMessageReceived
 from pkg.provider import entities as llm_entities
+from plugins.Waifu.cells.config import ConfigManager
 from plugins.Waifu.cells.generator import Generator
 from plugins.Waifu.cells.cards import Cards
 from plugins.Waifu.organs.memories import Memory
@@ -33,42 +36,93 @@ COMMANDS = {
 }
 
 
-@register(name="Waifu", description="Cuter than real waifu!", version="1.0", author="ElvisChenML")
+@register(name="Waifu", description="Cuter than real waifu!", version="1.1", author="ElvisChenML")
 class Waifu(BasePlugin):
     def __init__(self, host: APIHost):
         self.host = host
         self.ap = host.ap
         self._ensure_directories_exist()
         self._generator = Generator(host)
-        self._memory = Memory(host)
-        self._narrator = Narrator(host)
-        self._value_game = ValueGame(host)
-        self._cards = Cards(host)
+        self._memory: typing.Dict[str, Memory] = {}
+        self._narrator: typing.Dict[str, Narrator] = {}
+        self._value_game: typing.Dict[str, ValueGame] = {}
+        self._cards: typing.Dict[str, Cards] = {}
         self._thoughts = Thoughts(host)
-        self._character = "default"
-        self._system_prompt = ""
-        self._user_name = "用户"
-        self._assistant_name = "助手"
-        self._intervals = []
-        self._timer_task = None
+        self._story_mode_flag: typing.Dict[str, bool] = {}
+        self._display_thinking: typing.Dict[str, bool] = {}
+        self._response_rate: typing.Dict[str, float] = {}
+        self._launcher_intervals: typing.Dict[str, list] = {}
+        self._launcher_timer_tasks: typing.Dict[str, asyncio.Task] = {}
+        self._unreplied_msg: typing.Dict[str, int] = {}
+        self._summarization_mode: typing.Dict[str, bool] = {}
+        self._personate_mode: typing.Dict[str, bool] = {}
+        self._response_timers_flag: typing.Dict[str, bool] = {}
+        self._bracket_rate: typing.Dict[str, list] = {}
+        self._group_response_delay: typing.Dict[str, int] = {}
+        self._person_response_delay: typing.Dict[str, int] = {}
 
     async def initialize(self):
-        await self._load_config()
+        self.set_permissions_recursively("plugins/Waifu/water", 0o777)
 
     @handler(PersonNormalMessageReceived)
     async def person_normal_message_received(self, ctx: EventContext):
+        launcher_id = ctx.event.launcher_id
+        if launcher_id not in self._memory:
+            launcher_type = ctx.event.launcher_type
+            await self._load_config(launcher_id, launcher_type)
+
         msg = ctx.event.text_message.strip()
-
-        need_assistant_reply, msg = await self._handle_command(ctx, msg)
+        need_assistant_reply, msg = await self._handle_command(ctx, msg, launcher_id)
         if need_assistant_reply:
-            await self.request_assistant_reply(ctx, msg)
-            asyncio.create_task(self._handle_narration(ctx))
-
+            await self.request_person_reply(ctx, launcher_id, msg)
+            asyncio.create_task(self._handle_narration(ctx, launcher_id))
         ctx.prevent_default()
 
-    async def _handle_command(self, ctx: EventContext, msg: str) -> typing.Tuple[bool, str]:
+    @handler(GroupNormalMessageReceived)
+    async def group_normal_message_received(self, ctx: EventContext):
+        launcher_id = ctx.event.launcher_id
+        if launcher_id not in self._memory:
+            launcher_type = ctx.event.launcher_type
+            await self._load_config(launcher_id, launcher_type)
+        msg = ctx.event.text_message.strip()
+        need_assistant_reply, msg = await self._handle_command(ctx, msg, launcher_id)
+        if need_assistant_reply:
+            await self.request_group_reply(ctx, launcher_id, msg)
+        ctx.prevent_default()
+
+    async def _load_config(self, launcher_id: str, launcher_type: str):
+        self._memory[launcher_id] = Memory(self.host, launcher_id, launcher_type)
+        self._value_game[launcher_id] = ValueGame(self.host)
+        self._cards[launcher_id] = Cards(self.host)
+        self._narrator[launcher_id] = Narrator(self.host, launcher_id)
+        self._launcher_intervals[launcher_id] = []
+        self._unreplied_msg[launcher_id] = 0
+
+        waifu_config = ConfigManager(f"plugins/Waifu/water/config/waifu", "plugins/Waifu/water/templates/waifu", launcher_id)
+        await waifu_config.load_config(completion=True)
+
+        character = waifu_config.data.get("character", f"default")
+        if character == "default":  # 区分私聊和群聊的模板
+            character = f"default_{launcher_type}"
+        self._launcher_intervals[launcher_id] = waifu_config.data.get("intervals", [])
+        self._story_mode_flag[launcher_id] = waifu_config.data.get("story_mode", True)
+        self._display_thinking[launcher_id] = waifu_config.data.get("display_thinking", True)
+        self._response_rate[launcher_id] = waifu_config.data.get("response_rate", 0.7)
+        self._summarization_mode[launcher_id] = waifu_config.data.get("summarization_mode", False)
+        self._personate_mode[launcher_id] = waifu_config.data.get("personate_mode", True)
+        self._bracket_rate[launcher_id] = waifu_config.data.get("bracket_rate", [])
+        self._group_response_delay[launcher_id] = waifu_config.data.get("group_response_delay", 10)
+        self._person_response_delay[launcher_id] = waifu_config.data.get("person_response_delay", 5)
+        await self._memory[launcher_id].load_config(character, launcher_id, launcher_type)
+        await self._value_game[launcher_id].load_config(character, launcher_id, launcher_type)
+        await self._cards[launcher_id].load_config(character, launcher_type)
+        await self._narrator[launcher_id].load_config()
+        self.set_permissions_recursively("plugins/Waifu/water", 0o777)
+
+    async def _handle_command(self, ctx: EventContext, msg: str, launcher_id: str) -> typing.Tuple[bool, str]:
         need_assistant_reply = True
         response = ""
+        memory = self._memory[launcher_id]
         if msg.startswith("请设计"):
             content = msg[3:].strip()
             response = await self._generator.return_list(content)
@@ -97,34 +151,35 @@ class Waifu(BasePlugin):
             need_assistant_reply = False
             response = await self._generator.return_string(user_prompt, [], system_prompt)
         elif msg == "全部记忆":
-            response = self._memory.get_all_memories()
+            response = memory.get_all_memories()
             need_assistant_reply = False
         elif msg == "删除记忆":
-            response = self._stop_timer()
-            self._memory.delete_local_files()
-            self._value_game.reset_value()
+            response = self._stop_timer(launcher_id)
+            memory.delete_local_files()
+            self._value_game[launcher_id].reset_value()
             response += "记忆已删除。"
             need_assistant_reply = False
         elif msg.startswith("修改数值"):
             value = int(msg[4:].strip())
-            self._value_game._change_manner_value(value)
+            self._value_game[launcher_id]._change_manner_value(value)
             response = f"数值已改变：{value}"
             need_assistant_reply = False
         elif msg == "态度":
-            response = f"Manner：{self._value_game.get_manner_description()}"
+            response = f"Manner：{self._value_game[launcher_id].get_manner_description()}"
             need_assistant_reply = False
         elif msg == "加载配置":
-            await self._load_config()
+            launcher_type = ctx.event.launcher_type
+            await self._load_config(launcher_id, launcher_type)
             response = "配置已重载"
             need_assistant_reply = False
         elif msg == "停止活动":
-            response = self._stop_timer()
+            response = self._stop_timer(launcher_id)
             need_assistant_reply = False
         elif msg == "旁白":
-            await self._narrate(ctx)
+            await self._narrate(ctx, launcher_id)
             need_assistant_reply = False
         elif msg == "时间表":
-            response = f"时间表：\n{self._narrator.get_time_table()}"
+            response = f"时间表：\n{self._narrator[launcher_id].get_time_table()}"
             need_assistant_reply = False
         elif msg.startswith("控制人物"):
             content = msg[4:].strip()
@@ -133,11 +188,11 @@ class Waifu(BasePlugin):
                 role = parts[0].strip()
                 prompt = parts[1].strip()
                 current_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-                await self._memory.save_memory(role=role, content=prompt, time=current_time)
-                msg = "" # 清空msg以告诉后续函数非user发言
+                await memory.save_memory(role=role, content=prompt, time=current_time)
+                msg = ""  # 清空msg以告诉后续函数非user发言
             need_assistant_reply = True
         elif msg == "撤回":
-            response = f"已撤回：\n{await self._memory.remove_last_memory()}"
+            response = f"已撤回：\n{await memory.remove_last_memory()}"
             need_assistant_reply = False
         elif msg == "列出命令":
             response = self._list_commands()
@@ -150,29 +205,13 @@ class Waifu(BasePlugin):
     def _list_commands(self) -> str:
         return "\n\n".join([f"{cmd}: {desc}" for cmd, desc in COMMANDS.items()])
 
-    def _stop_timer(self):
-        if self._timer_task:
-            self._timer_task.cancel()
-            self._timer_task = None
+    def _stop_timer(self, launcher_id: str):
+        if launcher_id in self._launcher_timer_tasks and self._launcher_timer_tasks[launcher_id]:
+            self._launcher_timer_tasks[launcher_id].cancel()
+            self._launcher_timer_tasks[launcher_id] = None
             return "计时器已停止。"
         else:
             return "没有正在运行的计时器。"
-
-    async def _load_config(self):
-        self._waifu_config = await config.load_json_config(
-            "plugins/Waifu/water/config/waifu.json",
-            "plugins/Waifu/water/templates/waifu.json",
-            completion=False,
-        )
-        self._character = self._waifu_config.data["character"]
-        self._intervals = self._waifu_config.data.get("intervals", [])
-        await self._generator.set_character(self._character)
-        await self._memory.load_config()
-        await self._value_game.load_config()
-        await self._cards.load_config(self._character)
-        await self._narrator.load_config(self._cards.get_profile())  # 在cards之后加载
-        await self._thoughts.load_config()
-        self.set_permissions_recursively("plugins/Waifu/water", 0o777)
 
     def _ensure_directories_exist(self):
         directories = ["plugins/Waifu/water/cards", "plugins/Waifu/water/config", "plugins/Waifu/water/data"]
@@ -189,70 +228,204 @@ class Waifu(BasePlugin):
             for filename in files:
                 os.chmod(os.path.join(root, filename), mode)
 
-    async def request_assistant_reply(self, ctx: EventContext, msg: str = ""):
+    async def request_group_reply(self, ctx: EventContext, launcher_id: str, msg: str = ""):
+        memory = self._memory[launcher_id]
         current_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-        if msg:  # 此处仅处理user的发言，保存至短期记忆
-            await self._memory.save_memory(role="user", content=msg, time=current_time)
+        await memory.save_memory(role=ctx.event.sender_id, content=msg, time=current_time)
+        self._unreplied_msg[launcher_id] += 1
+        await self._group_reply(ctx, launcher_id)
 
-        await self._set_life_description()
-        manner = self._value_game.get_manner_description()
-        self._cards.set_manner(manner)
-        related_memories = await self._memory.load_memory(llm_entities.Message(role="user", content=msg))
-        self._cards.set_memory(related_memories)
+    async def _group_reply(self, ctx: EventContext, launcher_id: str):
+        memory = self._memory[launcher_id]
+        need_assistant_reply = False
+        if ctx.event.query.message_chain.has(mirai.At(ctx.event.query.adapter.bot_account_id)):
+            need_assistant_reply = True
+        if self._unreplied_msg[launcher_id] >= memory.response_min_conversations:
+            if random.random() < self._response_rate[launcher_id]:
+                need_assistant_reply = True
 
-        # user_prompt不直接从msg生成，而是先将msg保存至短期记忆，再由短期记忆生成。
-        # 好处是不论旁白或是控制人物，都能直接调用记忆生成回复
-        system_prompt = self._cards.generate_system_prompt()
-        background = self._cards.get_background()
-        user_prompt, analysis = await self._thoughts.generate_user_prompt(self._memory.short_term_memory, background, manner)
-        await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, MessageChain([f"【分析】：{analysis}"]), False)
+        if need_assistant_reply:
+            if launcher_id not in self._response_timers_flag or not self._response_timers_flag[launcher_id]:
+                self._response_timers_flag[launcher_id] = True
+                asyncio.create_task(self._delayed_group_reply(ctx, launcher_id))
+
+    async def _delayed_group_reply(self, ctx: EventContext, launcher_id: str):
+        self.ap.logger.info(f"wait group {launcher_id} for {self._group_response_delay[launcher_id]}s")
+        await asyncio.sleep(self._group_response_delay[launcher_id])
+        memory = self._memory[launcher_id]
+        cards = self._cards[launcher_id]
+
+        await self._set_life_description(launcher_id)
+        if self._summarization_mode[launcher_id]:
+            _, unreplied_conversations = memory.get_unreplied_msg(self._unreplied_msg[launcher_id])
+            related_memories = await memory.load_memory(unreplied_conversations)
+            if related_memories:
+                cards.set_memory(related_memories)
+
+        system_prompt = cards.generate_system_prompt()
+        background = cards.get_background()
+        rule = cards.get_init_section()
+        # 备份然后重置避免回复过程中接收到新讯息导致计数错误
+        unreplied_msg_count = self._unreplied_msg[launcher_id]
+        self._unreplied_msg[launcher_id] = 0
+        user_prompt, analysis = await self._thoughts.generate_group_prompt(memory, background, rule, unreplied_msg_count)
+        if self._display_thinking[launcher_id]:
+            await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, MessageChain([f"【分析】：{analysis}"]), False)
         response = await self._generator.return_chat(user_prompt, system_prompt)
 
         response_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-        await self._memory.save_memory(role="assistant", content=response, time=response_time)
+        await memory.save_memory(role="assistant", content=response, time=response_time)
 
-        await self._value_game.determine_manner_change(self._memory.short_term_memory)
-        response = self._value_game.add_manner_value(response)
+        if self._personate_mode[launcher_id]:
+            await self._send_personate_reply(ctx, response, launcher_id)
+        else:
+            await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, MessageChain([f"{response}"]), False)
+        self._response_timers_flag[launcher_id] = False
 
-        await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, MessageChain([f"{response}"]), False)
-        return
+        await self._group_reply(ctx, launcher_id) # 检查是否回复期间又满足响应条件
 
-    async def _set_life_description(self):
-        time_text, description = await self._narrator.get_assistant_life_description()
-        action = self._narrator.get_action()
-        self._cards.set_life_description(time_text, description, action)
+    async def request_person_reply(self, ctx: EventContext, launcher_id: str, msg: str = ""):
+        memory = self._memory[launcher_id]
 
-    async def _handle_narration(self, ctx: EventContext):
-        if self._timer_task:
-            self._timer_task.cancel()
+        current_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        if msg:  # 此处仅处理user的发言，保存至短期记忆
+            await memory.save_memory(role="user", content=msg, time=current_time)
+        self._unreplied_msg[launcher_id] += 1
+        await self._person_reply(ctx, launcher_id)
 
-        self._timer_task = asyncio.create_task(self._timed_narration_task(ctx))
+    async def _person_reply(self, ctx: EventContext, launcher_id: str):
+        if self._unreplied_msg[launcher_id] > 0:
+            if launcher_id not in self._response_timers_flag or not self._response_timers_flag[launcher_id]:
+                self._response_timers_flag[launcher_id] = True
+                asyncio.create_task(self._delayed_person_reply(ctx, launcher_id))
 
-    async def _timed_narration_task(self, ctx: EventContext):
+    async def _delayed_person_reply(self, ctx: EventContext, launcher_id: str):
+        self.ap.logger.info(f"wait person {launcher_id} for {self._person_response_delay[launcher_id]}s")
+        await asyncio.sleep(self._person_response_delay[launcher_id])
+        self._response_timers_flag[launcher_id] = False
+        memory = self._memory[launcher_id]
+        cards = self._cards[launcher_id]
+        _, unreplied_conversations = memory.get_unreplied_msg(self._unreplied_msg[launcher_id])
+
+        await self._set_life_description(launcher_id)
+        if self._story_mode_flag[launcher_id]:
+            value_game = self._value_game[launcher_id]
+            manner = value_game.get_manner_description()
+            cards.set_manner(manner)
+        if self._summarization_mode[launcher_id]:
+            related_memories = await memory.load_memory(unreplied_conversations)
+            cards.set_memory(related_memories)
+
+        # user_prompt不直接从msg生成，而是先将msg保存至短期记忆，再由短期记忆生成。
+        # 好处是不论旁白或是控制人物，都能直接调用记忆生成回复
+        system_prompt = cards.generate_system_prompt()
+        background = cards.get_background()
+        rule = cards.get_init_section()
+        unreplied_msg_count = self._unreplied_msg[launcher_id]
+        self._unreplied_msg[launcher_id] = 0
+        user_prompt, analysis = await self._thoughts.generate_person_prompt(memory, background, rule)
+        if self._display_thinking[launcher_id]:
+            await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, MessageChain([f"【分析】：{analysis}"]), False)
+
+        response = await self._generator.return_chat(user_prompt, system_prompt)
+        response_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        await self._memory[launcher_id].save_memory(role="assistant", content=response, time=response_time)
+
+        if self._story_mode_flag[launcher_id]:
+            value_game = self._value_game[launcher_id]
+            await value_game.determine_manner_change(self._memory[launcher_id])
+            response = value_game.add_manner_value(response)
+
+        if not self._story_mode_flag[launcher_id] and self._personate_mode[launcher_id]:
+            await self._send_personate_reply(ctx, response, launcher_id)
+        else:
+            await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, MessageChain([f"{response}"]), False)
+
+        await self._person_reply(ctx, launcher_id)
+
+    async def _set_life_description(self, launcher_id: str):
+        narrator = self._narrator[launcher_id]
+        cards = self._cards[launcher_id]
+        time_text, description = await narrator.get_assistant_life_description(self._cards[launcher_id].get_profile())
+        action = narrator.get_action()
+        cards.set_life_description(time_text, description, action)
+
+    async def _handle_narration(self, ctx: EventContext, launcher_id: str):
+        if launcher_id in self._launcher_timer_tasks and self._launcher_timer_tasks[launcher_id]:
+            self._launcher_timer_tasks[launcher_id].cancel()
+
+        self._launcher_timer_tasks[launcher_id] = asyncio.create_task(self._timed_narration_task(ctx, launcher_id))
+
+    async def _timed_narration_task(self, ctx: EventContext, launcher_id: str):
         try:
-            for interval in self._intervals:
+            for interval in self._launcher_intervals.get(launcher_id, []):
                 self.ap.logger.info("start timer: {}".format(interval))
-                await asyncio.sleep(interval)
-                await self._narrate(ctx)
+                await asyncio.create_task(self._sleep_and_narrate(ctx, launcher_id, interval))
 
             self.ap.logger.info("All intervals completed.")
         except asyncio.CancelledError:
             self.ap.logger.info("Timed narration task cancelled.")
             pass
 
-    async def _narrate(self, ctx: EventContext):
-        conversations = self._memory.short_term_memory
+    async def _sleep_and_narrate(self, ctx: EventContext, launcher_id: str, interval: int):
+        await asyncio.sleep(interval)
+        await self._narrate(ctx, launcher_id)
+
+    async def _narrate(self, ctx: EventContext, launcher_id: str):
+        memory = self._memory[launcher_id]
+        conversations = memory.short_term_memory
         if len(conversations) < 2:
             return
 
-        narration = await self._narrator.narrate(conversations)
+        narrator = self._narrator[launcher_id]
+        narration = await narrator.narrate(memory, self._cards[launcher_id].get_profile())
 
         if narration:
-            await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, MessageChain([f"({self._generator.to_custom_names(narration)})"]), False)
+            await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, MessageChain([f"({memory.to_custom_names(narration)})"]), False)
             current_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-            narration = self._generator.to_generic_names(narration)  # Ensure characters in stored narrations remain consistent in any context
-            await self._memory.save_memory(role="narrator", content=narration, time=current_time)
+            narration = memory.to_generic_names(narration)  # Ensure characters in stored narrations remain consistent in any context
+            await memory.save_memory(role="narrator", content=narration, time=current_time)
+
+    async def _send_personate_reply(self, ctx: EventContext, response: str, launcher_id: str):
+        parts = re.split(r"([，。？])", response)  # 保留分隔符
+        combined_parts = []
+        temp_part = ""
+
+        for i in range(0, len(parts) - 1, 2):  # 以步长2遍历，确保每次都拿到句子和分隔符
+            part = parts[i].strip()
+            separator = parts[i + 1]
+            if part:
+                if separator == "？":  # 保留“？”分隔符
+                    part += separator
+                if len(part) < 3 and i < len(parts) - 2:  # 非最后一次迭代时才考虑长度
+                    temp_part += " " + part if temp_part else part
+                else:
+                    if temp_part:
+                        combined_parts.append(temp_part + " " + part)
+                        temp_part = ""
+                    else:
+                        combined_parts.append(part)
+        if temp_part:
+            combined_parts.append(temp_part)
+
+        # 如果response未使用分段标点符号，combined_parts为空，添加整个response作为一个单独的部分
+        if not combined_parts:
+            combined_parts.append(response)
+
+        if combined_parts:
+            try:
+                if random.random() < self._bracket_rate[launcher_id][0]:  # 老互联网冲浪人士了（）
+                    combined_parts[-1] += "（）"
+                elif random.random() < self._bracket_rate[launcher_id][1]:
+                    combined_parts[-1] += "（"
+            except:
+                pass
+
+        for part in combined_parts:
+            await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, MessageChain([part]), False)
+            await asyncio.sleep(len(part) / 2)  # 根据字数计算延迟时间，假设每2个字符1秒
 
     def __del__(self):
-        if self._timer_task:
-            self._timer_task.cancel()
+        for timer_task in self._launcher_timer_tasks.values():
+            if timer_task:
+                timer_task.cancel()

@@ -26,9 +26,23 @@
   * 情感表达：通过语言表达安慰、同情、喜悦等情感。
 * 事件：虚构生活细节和日常活动，加入话题中。
 
-### Waifu 2.0 Developed
+### Waifu 1.1
 
+* **注意：此版本开始每个会话使用独立配置文件（yaml），原配置文件将废弃，请重新配置。**
 * 新增 撤回功能：从短期记忆中删除最后的对话
+* 新增 消息累积处理：若X秒内有多条消息将合并处理（时间可配置）
+* 新增 拟人模式：
+  * 模拟打字时间
+  * 模拟分段回复：按标点符号断句回复
+  * 加括号：为了更有网络冲浪的味道，机率在回复末尾加括号
+  * 不可与剧情模式同时开启
+* 优化 记忆及配置：
+  * 配置及人设切换为yaml
+  * 不同会话配置独立，若无独立配置则使用通用配置
+  * 不同会话记忆独立
+  * 不同会话支援不同角色卡
+* 新增 群聊模式：
+  * 群聊角色卡不支援状态栏
 
 ### Waifu 1.0 
 
@@ -70,6 +84,8 @@
 ✅ 问答模块 generator.py：通过QChatGPT调用LLM进行问答。
 
 ✅ 角色模块 cards.py：Waifu的人物预设识别模块，采用LangGPT格式。
+
+✅ 配置模块 config.py：实现yaml格式的配置加载及写入。
 
 #### 基础模块 Organs
 
@@ -144,19 +160,67 @@
   * [DeepSeek官方对话补全说明](https://platform.deepseek.com/api-docs/zh-cn/api/create-chat-completion/)
   * [cohere参数说明](https://docs.cohere.com/reference/chat)
   
-* water/config/waifu.json
-  * character：使用water/cards中的预设名称，使用默认值“default”时会使用模板Water/config/default_card.json创建water/cards/default.json。
-  * intervals：列表，自动触发旁白推进剧情的时间间隔，单位秒，默认为[300,600,1800,3600]，即：第一次5分钟、第二次10分钟、第三次30分钟、第四次一个小时，然后停止计时器。  
-  * narrat_max_conversations：用于生成旁白的最大对话数量。
-  * analyze_max_conversations：用于生成分析的最大对话数量。
-  * value_game_conversations：判定数值变化时输入的最大对话数量。
-  * short_term_memory_size：短期记忆，完整的对话记录长度。
-  * memory_batch_size：短期记忆达到上限后，将memory_batch_size条发言转换成长期记忆。
-  * retrieve_top_n：每次提取retrieve_top_n条相关的长期记忆。
-  * summary_min_tags：每段长期记忆的最小标签数量（不稳定）。
+* 修改 pipeline.json 启用群聊模式
   
-* water/cards/default.json
-  * system_prompt：系统提示相关配置
+  * ```json
+    # 建议修改为whitelist模式
+    "access-control":{
+        "mode": "whitelist",
+        "blacklist": [],
+        "whitelist": [激活Bot的群号]
+    },
+    # random改为1，所有会话交由插件处理
+    "respond-rules": {
+        "default": {
+            "at": true,
+            "prefix": [
+                "/ai", "!ai", "！ai", "ai"
+            ],
+            "regexp": [],
+            "random": 1
+        }
+    },
+    ```
+  
+* water/config/waifu.yaml
+  
+  * 配置将分为 通用配置 “waifu.yaml”，以及会话配置 “waifu_&#91;会话&#93;.yaml”
+  * 会话配置 优先级高于 通用配置
+  
+  ```yaml
+  # 通用设置
+  character: "default" # 使用water/cards中的预设名称，使用默认值“default”时会使用模板Water/config/default_*.yaml创建water/cards/default_*.yaml。
+  summarization_mode: true # 是否开启长期记忆，不开启则超出short_term_memory_size直接截断。
+  story_mode: true # 是否开启剧情模式（旁白、状态栏），仅私聊模式生效。
+  display_thinking: false # 是否显示内心活动。
+  personate_mode: true # 是否启用拟人化：打字时间、分段回复
+  
+  # 思考模块
+  analyze_max_conversations: 9 # 用于生成分析的最大对话数量。
+  
+  # 记忆模块
+  short_term_memory_size: 40 # 短期记忆，完整的对话记录长度。
+  memory_batch_size: 20 # 长期记忆，短期记忆达到上限后，将memory_batch_size条发言转换成长期记忆。
+  retrieve_top_n: 3 # 长期记忆，每次提取retrieve_top_n条相关的长期记忆。
+  summary_min_tags: 20 # 长期记忆，每段长期记忆的最小标签数量（不稳定）。
+  
+  # 群聊设置
+  response_min_conversations: 5 # 群聊触发回复的最小对话数量。
+  response_rate: 0.7 # 群聊触达到最小对话数量后回复的机率，为1时所有消息都响应。
+  group_response_delay: 10 # 群聊消息合并等待时间
+  
+  # 拟人化设置
+  bracket_rate: [0.35, 0.3] # 回复末尾加括号的机率，第一个对应加（）的机率，第二个对应加（的机率
+  
+  # 私聊剧情模式
+  narrat_max_conversations: 8 # 用于生成旁白的最大对话数量。
+  value_game_max_conversations: 5 # 判定数值变化时输入的最大对话数量。
+  intervals: [300, 600, 1800, 3600] # 列表，自动触发旁白推进剧情的时间间隔，单位秒，默认为[300,600,1800,3600]，即：第一次5分钟、第二次10分钟、第三次30分钟、第四次一个小时，然后停止计时器。
+  person_response_delay: 5 # 私聊消息合并等待时间
+  ```
+  
+* water/cards/default_person/group.yaml
+  * system prompt：系统提示相关配置
     * user_name：必填项，Waifu如何称呼你
     * assistant_name：必填项，Waifu的名字
     * language：必填项，Waifu使用的语言
@@ -164,8 +228,8 @@
     * Skills：非必填项，Waifu的技能
     * Background：必填项，Waifu的背景
     * Rules：必填项，Waifu应遵循的规则
-  * manner：配置value_game不同数值区间的行为
-  * actions_type：配置value_game判定数值变化的条件
+  * manner (person)：非必填项，仅私聊模式生效，配置value_game不同数值区间的行为
+  * actions type (person)：非必填项，仅私聊模式生效，配置value_game判定数值变化的条件
 
 ## 协助开发
 
@@ -174,16 +238,10 @@
 3. 于QChatGPT新建目录plugins
 4. 将Waifu放在 ”QChatGPT\plugins\“ 目录下
 
-## 已知问题
-
-* 所有角色卡共用记忆
-* 所有用户共用记忆
-* 不支援群聊模式
-
 ## 鸣谢🎉
 
 感谢 [QChatGPT](https://github.com/RockChinQ/QChatGPT) 提供Bot功能及其他基础方法
 
 感谢 [LangGPT](https://github.com/langgptai/LangGPT) 提供人物预设提示词范式
 
-感谢 [CyberWaifu](https://github.com/Syan-Lin/CyberWaifu) [koishi-plugin-aikanojo](https://github.com/HunterShenSmzh/koishi-plugin-aikanojo) 提供的思路和代码
+感谢 [CyberWaifu](https://github.com/Syan-Lin/CyberWaifu) [koishi-plugin-aikanojo](https://github.com/HunterShenSmzh/koishi-plugin-aikanojo) [Spit_chatBot](https://github.com/LUMOXu/Spit_chatBot) 提供的思路和代码
