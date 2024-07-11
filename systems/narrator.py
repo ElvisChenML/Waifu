@@ -26,9 +26,7 @@ class Narrator:
     async def narrate(self, memory: Memory, profile: str) -> str:
         conversations = memory.short_term_memory[-memory.narrate_max_conversations :]
 
-        time_text, description = await self.get_assistant_life_description(profile)
-        user_prompt = f"""现在是{time_text}，{memory.assistant_name}往常这时候在“{description}。”"""
-
+        user_prompt = ""
         speakers, conversations_str = memory.get_conversations_str_for_person(conversations)
         last_role = memory.get_last_role(conversations)
         if last_role == "narrator":
