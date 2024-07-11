@@ -1,8 +1,27 @@
 import json
 import typing
 import re
+import functools
+from datetime import datetime
 from pkg.plugin.context import APIHost
 from pkg.provider import entities as llm_entities
+from pkg.provider.modelmgr import errors
+
+
+def handle_errors(func):
+    @functools.wraps(func)
+    async def wrapper(*args, **kwargs):
+        try:
+            return await func(*args, **kwargs)
+        except errors.RequesterError as e:
+            # self.ap.logger 是类的属性，这里使用 args[0] 代表实例对象
+            args[0].ap.logger.error(f"请求错误：{e}")
+            raise  # 重新抛出异常
+        except Exception as e:
+            args[0].ap.logger.error(f"未处理的异常：{e}")
+            raise
+
+    return wrapper
 
 
 class Generator:
@@ -11,7 +30,7 @@ class Generator:
         self.ap = host.ap
 
     def get_full_prompts(
-        self, user_prompt: str, conversations: typing.List[llm_entities.Message] = [], output_format: str = "JSON list", system_prompt: str = None
+        self, user_prompt: str, output_format: str = "JSON list", system_prompt: str = None
     ) -> typing.List[llm_entities.Message]:
         messages = []
         if system_prompt:
@@ -21,82 +40,104 @@ class Generator:
             "task": user_prompt,
             "output_format": output_format,
         }
-        if conversations:
-            conversations_str = [message.readable_str() for message in conversations]
-            task["conversations"] = conversations_str
 
         task_json = json.dumps(task, ensure_ascii=False)
         messages.append(llm_entities.Message(role="user", content=task_json.strip()))
-        return messages
+        return self._save_token(messages)
 
-    def get_chat_prompts(self, user_prompt: str, system_prompt: str = None) -> typing.List[llm_entities.Message]:
+    def _get_chat_prompts(self, user_prompt: str, system_prompt: str = None) -> typing.List[llm_entities.Message]:
         messages = []
         if system_prompt:
             messages.append(llm_entities.Message(role="system", content=system_prompt))
         messages.append(llm_entities.Message(role="user", content=user_prompt))
-        return messages
+        return self._save_token(messages)
 
-    async def select_from_list(self, question: str, options: list, conversations: typing.List[llm_entities.Message] = [], system_prompt: str = None) -> str:
+    def _get_image_prompts(self, content_list: list[llm_entities.ContentElement], system_prompt: str = None) -> typing.List[llm_entities.Message]:
+        messages = []
+        if system_prompt:
+            messages.append(llm_entities.Message(role="system", content=system_prompt))
+        messages.append(llm_entities.Message(role="user", content=content_list))
+        return self._save_token(messages)
+
+    @handle_errors
+    async def select_from_list(self, question: str, options: list, system_prompt: str = None) -> str:
         model_info = await self.ap.model_mgr.get_model_by_name(self.ap.provider_cfg.data["model"])
         prompt = f"""Please select the most suitable option from the given list based on the question. Question: {question} List: {options}. Ensure your answer contains only one option from the list and no additional explanation or context."""
-        messages = self.get_full_prompts(prompt, conversations, output_format="text", system_prompt=system_prompt)
+        messages = self.get_full_prompts(prompt, output_format="text", system_prompt=system_prompt)
+
+        self.ap.logger.info("发送请求：\n{}".format(self.messages_to_readable_str(messages)))
 
         response = await model_info.requester.call(model=model_info, messages=messages)
         cleaned_response = self.clean_response(response.readable_str())
 
-        self.ap.logger.info("Current prompts: \n{}".format(self.messages_to_readable_str(messages)))
-        self.ap.logger.info("response: {}".format(cleaned_response))
-
+        self.ap.logger.info("模型回复：\n{}".format(cleaned_response))
         return cleaned_response
 
-    async def return_list(self, question: str, conversations: typing.List[llm_entities.Message] = [], system_prompt: str = None, generate_tags: bool = False) -> list:
+    @handle_errors
+    async def return_list(self, question: str, system_prompt: str = None, generate_tags: bool = False) -> list:
         model_info = await self.ap.model_mgr.get_model_by_name(self.ap.provider_cfg.data["model"])
         prompt = f"""Please design a list of types based on the question and return the answer in JSON list format. Question: {question} Ensure your answer is strictly in JSON list format, for example: ["Type1", "Type2", ...]."""
-        messages = self.get_full_prompts(prompt, conversations, output_format="JSON list", system_prompt=system_prompt)
+        messages = self.get_full_prompts(prompt, output_format="JSON list", system_prompt=system_prompt)
+
+        self.ap.logger.info("发送请求：\n{}".format(self.messages_to_readable_str(messages)))
 
         response = await model_info.requester.call(model=model_info, messages=messages)
         cleaned_response = self.clean_response(response.readable_str())
 
-        self.ap.logger.info("Current prompts: \n{}".format(self.messages_to_readable_str(messages)))
-        self.ap.logger.info("response: {}".format(cleaned_response))
-
+        self.ap.logger.info("模型回复：\n{}".format(cleaned_response))
         return self._parse_json_list(cleaned_response, generate_tags)
 
-    async def return_number(self, question: str, conversations: typing.List[llm_entities.Message] = [], system_prompt: str = None) -> int:
+    @handle_errors
+    async def return_number(self, question: str, system_prompt: str = None) -> int:
         model_info = await self.ap.model_mgr.get_model_by_name(self.ap.provider_cfg.data["model"])
         prompt = f"""Please determine the numeric answer based on the question and return the answer as a number. Ensure your answer is a single number with no additional explanation or context. Question: {question}"""
-        messages = self.get_full_prompts(prompt, conversations, output_format="number", system_prompt=system_prompt)
+        messages = self.get_full_prompts(prompt, output_format="number", system_prompt=system_prompt)
+
+        self.ap.logger.info("发送请求：\n{}".format(self.messages_to_readable_str(messages)))
 
         response = await model_info.requester.call(model=model_info, messages=messages)
         cleaned_response = self.clean_response(response.readable_str())
 
-        self.ap.logger.info("Current prompts: \n{}".format(self.messages_to_readable_str(messages)))
-        self.ap.logger.info("response: {}".format(cleaned_response))
-
+        self.ap.logger.info("模型回复：\n{}".format(cleaned_response))
         return self._parse_number(cleaned_response)
 
-    async def return_string(self, question: str, conversations: typing.List[llm_entities.Message] = [], system_prompt: str = None) -> str:
+    @handle_errors
+    async def return_string(self, question: str, system_prompt: str = None) -> str:
         model_info = await self.ap.model_mgr.get_model_by_name(self.ap.provider_cfg.data["model"])
-        messages = self.get_full_prompts(question, conversations, output_format="text", system_prompt=system_prompt)
+        messages = self.get_full_prompts(question, output_format="text", system_prompt=system_prompt)
+
+        self.ap.logger.info("发送请求：\n{}".format(self.messages_to_readable_str(messages)))
 
         response = await model_info.requester.call(model=model_info, messages=messages)
         cleaned_response = self.clean_response(response.readable_str())
 
-        self.ap.logger.info("Current prompts: \n{}".format(self.messages_to_readable_str(messages)))
-        self.ap.logger.info("response: {}".format(cleaned_response))
-
+        self.ap.logger.info("模型回复：\n{}".format(cleaned_response))
         return cleaned_response
 
-    async def return_chat(self, request: str, system_prompt: str = None) -> str:
+    @handle_errors
+    async def return_image(self, content_list: list[llm_entities.ContentElement], system_prompt: str = None) -> str:
         model_info = await self.ap.model_mgr.get_model_by_name(self.ap.provider_cfg.data["model"])
-        messages = self.get_chat_prompts(request, system_prompt)
+        messages = self._get_image_prompts(content_list, system_prompt)
+
+        self.ap.logger.info("发送请求：\n{}".format(self.messages_to_readable_str(messages)))
 
         response = await model_info.requester.call(model=model_info, messages=messages)
         cleaned_response = self.clean_response(response.readable_str())
 
-        self.ap.logger.info("Current prompts: \n{}".format(self.messages_to_readable_str(messages)))
-        self.ap.logger.info("response: {}".format(cleaned_response))
+        self.ap.logger.info("模型回复：\n{}".format(cleaned_response))
+        return cleaned_response
 
+    @handle_errors
+    async def return_chat(self, request: str, system_prompt: str = None) -> str:
+        model_info = await self.ap.model_mgr.get_model_by_name(self.ap.provider_cfg.data["model"])
+        messages = self._get_chat_prompts(request, system_prompt)
+
+        self.ap.logger.info("发送请求：\n{}".format(self.messages_to_readable_str(messages)))
+
+        response = await model_info.requester.call(model=model_info, messages=messages)
+        cleaned_response = self.clean_response(response.readable_str())
+
+        self.ap.logger.info("模型回复：\n{}".format(cleaned_response))
         return cleaned_response
 
     def clean_response(self, response: str) -> str:
@@ -152,5 +193,37 @@ class Generator:
     def _is_balanced(self, string: str, open_char: str, close_char: str) -> bool:
         return string.count(open_char) == string.count(close_char)
 
+    def _save_token(self, messages: typing.List[llm_entities.Message]) -> typing.List[llm_entities.Message]:
+        punctuation_map = {"，": ",", "。": ".", "“": '"', "”": '"', "？": "?", "！": "!", "《": "<", "》": ">", "、": ","}
+
+        def replace_punctuation(text: str) -> str:
+            for cn, en in punctuation_map.items():
+                text = text.replace(cn, en)
+            return text
+
+        new_messages = []
+
+        for message in messages:
+            if isinstance(message.content, list):
+                new_content = []
+                for elem in message.content:
+                    if elem.type == "text" and elem.text:
+                        new_text = replace_punctuation(elem.text)
+                        new_elem = llm_entities.ContentElement.from_text(new_text)
+                    else:
+                        new_elem = elem
+                    new_content.append(new_elem)
+                new_message = llm_entities.Message(role=message.role, content=new_content)
+                new_messages.append(new_message)
+            else:
+                new_message = llm_entities.Message(role=message.role, content=replace_punctuation(message.content))
+                new_messages.append(new_message)
+
+        return new_messages
     def messages_to_readable_str(self, messages: typing.List[llm_entities.Message]) -> str:
         return "\n".join(message.readable_str() for message in messages)
+
+    def get_chinese_current_time(self):
+        current_time = datetime.now()
+        chinese_time = current_time.strftime("%y年%m月%d日%H时%M分")
+        return chinese_time

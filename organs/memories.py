@@ -72,7 +72,7 @@ class Memory:
 
         system_prompt_tags = "你是总结对话并生成简明标签的专家。确保输出是仅包含标签的有效 JSON 列表。不要包含任何附加信息、评论或解释。"
 
-        tags = await self._generator.return_list(user_prompt_tags, [], system_prompt_tags, True)
+        tags = await self._generator.return_list(user_prompt_tags, system_prompt_tags, True)
         return memory, tags
 
     async def _generate_summary(self, conversations: typing.List[llm_entities.Message]) -> str:
@@ -135,8 +135,9 @@ class Memory:
         similarities.sort(reverse=True, key=lambda x: x[0])
         return [summary for _, summary in similarities[:self._retrieve_top_n]]
 
-    async def save_memory(self, role: str, content: str, time: str):
-        content_with_time = f"[{time}] {content}"
+    async def save_memory(self, role: str, content: str):
+        time = self._generator.get_chinese_current_time()
+        content_with_time = f"[{time}]{content}"
         conversation = llm_entities.Message(role=role, content=content_with_time)
         self.short_term_memory.append(conversation)
         self._save_short_term_memory_to_file()
@@ -280,14 +281,14 @@ class Memory:
             conversations_str += f"{role}说：“{content}”。"
         return conversations_str
 
-    def get_unreplied_msg(self, unreplied_msg: int) -> typing.Tuple[int, typing.List[llm_entities.Message]]:
+    def get_unreplied_msg(self, unreplied_count: int) -> typing.Tuple[int, typing.List[llm_entities.Message]]:
         count = 0  # 未回复的数量 + 穿插的自己发言的数量 用以正确区分 replied 及 unreplied 分界线
         messages = []
         for message in reversed(self.short_term_memory):
             count += 1
             if message.role != "assistant":
                 messages.insert(0, message)
-                if len(messages) >= unreplied_msg:
+                if len(messages) >= unreplied_count:
                     return count, messages
         return count, messages
 

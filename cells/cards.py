@@ -19,7 +19,6 @@ class Cards:
         self._manner = ""
         self._memories = []
         self._init = ""
-        self._current = []
 
     async def load_config(self, character: str, launcher_type: str):
         config = ConfigManager(f"plugins/Waifu/water/cards/{character}", f"plugins/Waifu/water/templates/default_{launcher_type}")
@@ -28,25 +27,19 @@ class Cards:
         self._assistant_name = config.data.get("assistant_name", "助手")
         self._language = config.data.get("language", "简体中文")
         self._profile = config.data.get("Profile", [])
+        self._profile = [f"你叫{self._assistant_name}。"] + self._profile
         self._skills = config.data.get("Skills", [])
         self._background = config.data.get("Background", [])
         if launcher_type == "person":
             self._background.append(f"你是{self._assistant_name}，我是{self._user_name}。")
         self._rules = config.data.get("Rules", [])
         self._init = config.data.get("Init", "")
-        self._current = []
 
     def set_memory(self, memories: typing.List[str]):
         self._memories = memories
 
     def set_manner(self, manner: str):
         self._manner = manner
-
-    def set_life_description(self, time_text: str, location: str, action: str):
-        self._current.clear()
-        self._current.append(f"现在是{time_text}，你在{location}。")
-        if action:
-            self._current.append(action)
 
     def get_background(self) -> str:
         return "".join(self._background) if isinstance(self._background, list) else self._background
@@ -64,11 +57,10 @@ class Cards:
             ("Skills", self._skills),
             ("Background", self._background),
             ("Memories", self._memories),
-            ("Current", self._current),
-            ("Init", self.get_init_section()),
+            ("Init", self.get_rules()),
         ]
 
-    def get_init_section(self) -> str:
+    def get_rules(self) -> str:
         init_parts = []
         if self._rules:
             init_parts.append(self._list_to_prompt_str(self._rules, "你必须遵守"))
