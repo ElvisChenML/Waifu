@@ -542,6 +542,20 @@ class Waifu(BasePlugin):
         translation_table = str.maketrans({",": "，", ".": "。", "?": "？", "!": "！", ":": "：", ";": "；", "(": "（", ")": "）", "\n": " "})
         return text.translate(translation_table)
 
+    def _remove_surrounding_quotes(self, text: str) -> str:
+        # 定义匹配中英文单双引号的正则表达式
+        pattern = r"^(['\"“”‘’]).*(['\"“”‘’])$"
+        # 检查字符串是否仅头尾有引号
+        match = re.match(pattern, text)
+        if match and text[1:-1].count(match.group(1)) == 0 and text[1:-1].count(match.group(2)) == 0:
+            return text[1:-1]
+        return text
+
+    async def _reply(self, ctx: EventContext, response: str):
+        response_fixed = self._replace_english_punctuation(response).strip()
+        response_fixed = self._remove_surrounding_quotes(response_fixed)
+        await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, MessageChain([f"{response_fixed}"]), False)
+
     def _set_jail_break(self, launcher_id: str, jail_break: str, type: str):
         self._generator.set_jail_break(jail_break, type)
         self._memory[launcher_id].set_jail_break(jail_break, type)
@@ -549,14 +563,10 @@ class Waifu(BasePlugin):
         self._narrator[launcher_id].set_jail_break(jail_break, type)
         self._thoughts[launcher_id].set_jail_break(jail_break, type)
 
-    async def _reply(self, ctx: EventContext, response: str):
-        translated_response = self._replace_english_punctuation(response).strip()
-        await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, MessageChain([f"{translated_response}"]), False)
-
     async def _test(self, ctx: EventContext):
-        '''
+        """
         功能测试：隐藏指令，功能测试会清空记忆，请谨慎执行。
-        '''
+        """
         # 修改配置以优化测试效果
         launcher_id = ctx.event.launcher_id
         self._launcher_intervals[launcher_id] = []
@@ -572,21 +582,22 @@ class Waifu(BasePlugin):
         await self._reply(ctx, "温馨提示：测试结束会提示【测试结束】。")
         await self._reply(ctx, "【测试开始】")
         await self._test_command(ctx, "清空记忆#删除记忆")
-        await self._test_command(ctx, "手动书写自己发言（等同于直接发送）#控制人物user|你们班的同学跟我说，你的同事也是大美女，可以介绍给我吗？")
-        await self._test_command(ctx, "手动书写“指定角色”发言#控制人物同学|老师你瞪我做什么，我只是把语文老师推荐给老王而已。")
-        await self._test_command(ctx, "手动书写旁白#控制人物narrator|（同学看苏苏走了过来，飞快把桌上的一叠照片藏起来，苏苏只是隐约看见好像是自己和语文老师的照片）")
-        await self._test_command(ctx, "请AI生成旁白#旁白")
+        await self._test_command(ctx, "手动书写自己发言（等同于直接发送）#控制人物user|（卖西瓜的老王掏出手机发消息给苏苏）哎，你们班的学生跟我说，你的同事也是大美女，你可以介绍她给我认识吗？")
         await self._test_command(ctx, "请AI继续生成回复#继续")
-        await self._test_command(ctx, "请AI生成“指定角色”发言#控制人物同学|继续")
+        await self._test_command(ctx, "手动书写“指定角色”发言#控制人物学生|什么？卖西瓜的老王说我让你给他介绍美女同事？我只是告诉她我们英文和语文老师都很漂亮而已。")
+        await self._test_command(ctx, "手动书写旁白#控制人物narrator|（学生手足无措的解释，他确实没有想给老师找任何麻烦。）")
+        await self._test_command(ctx, "请AI生成旁白#旁白")
+        await self._test_command(ctx, "请AI生成“指定角色”发言#控制人物学生|继续")
+        await self._test_command(ctx, "手动书写“指定角色”发言#控制人物语文老师|（走廊上，语文老师走到苏苏和学生旁边）苏苏，为什么有个叫“卖西瓜的老王”加我好友？不会是现在在西瓜摊坐着的那个吧？")
         await self._test_command(ctx, "使用“user”推进剧情#推进剧情")
-        await self._test_command(ctx, "使用“指定角色”推进剧情#推进剧情同学")
+        await self._test_command(ctx, "使用“指定角色”推进剧情#推进剧情学生")
         await self._test_command(ctx, "请AI生成用户发言#控制人物user|继续")
         await self._test_command(ctx, "停止旁白计时器#停止活动")
         await self._test_command(ctx, "查看当前态度数值及当前行为准则（Manner）#态度")
         await self._test_command(ctx, "撤回最后一条对话#撤回")
         await self._test_command(ctx, "查看当前长短期记忆#全部记忆")
         await self._test_command(ctx, "清空记忆#删除记忆")
-        await self._test_command(ctx, "重载配置#加载配置") # 强制执行，将修改的配置改回来
+        await self._test_command(ctx, "重载配置#加载配置")  # 强制执行，将修改的配置改回来
         await self._reply(ctx, "【测试结束】")
 
     async def _test_command(self, ctx: EventContext, command: str):

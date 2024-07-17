@@ -21,14 +21,14 @@ class Thoughts:
         last_speaker = memory.get_last_speaker(conversations)
         user_prompt = f"这是之前记录：“{conversations_str}”。这是{memory.assistant_name}的角色设定“{profile}{background}”。这是你对待用户的行为准则“{manner}”。"
         if last_role == "narrator":
-            user_prompt += f"""你要作为{memory.assistant_name}分析“{conversations_str}”中“{last_content}”里“{"、".join(speakers)}”之间的行为及事件。"""
+            user_prompt += f"""分析之前记录中“{last_content}”里“{"、".join(speakers)}”之间的行为及事件。"""
         else:
-            user_prompt += f"你要作为{memory.assistant_name}分析“{conversations_str}”中{memory.assistant_name}听到{last_speaker}说“{last_content}”后关于{last_speaker}的心理活动。"
+            user_prompt += f"分析之前记录中{memory.assistant_name}听到{last_speaker}说“{last_content}”后关于{last_speaker}的心理活动。"
         user_prompt += f"确保考虑到上下文，并依据{memory.assistant_name}的性格特点和当前情境进行心理分析，充分体现{memory.assistant_name}的性格特征和情感反应。"
         if manner:
             user_prompt += f"确保心理活动符合行为准则。"
         time = self._generator.get_chinese_current_time()
-        user_prompt += f"""确保心理活动简明扼要，意图明确。确保心理活动考虑到当前时间是{time}，并且应符合{memory.assistant_name}的角色设定。确保回复的是关于{last_speaker}的心理活动，而不是要对{last_speaker}说的话。只提供50字以内的心理活动，不需要其他说明。"""
+        user_prompt += f"""确保分析是站在{memory.assistant_name}的角度思考。确保心理活动简明扼要，意图明确。确保心理活动考虑到当前时间是{time}，并且应符合{memory.assistant_name}的角色设定。确保回复的是关于{last_speaker}的心理活动，而不是要对{last_speaker}说的话。只提供50字以内的心理活动，不需要其他说明。"""
         analysis_result = await self._generator.return_string(user_prompt)
         return analysis_result
 
