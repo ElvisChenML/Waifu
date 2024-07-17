@@ -18,7 +18,8 @@ class Cards:
         self._rules = []
         self._manner = ""
         self._memories = []
-        self._init = ""
+        self._speaking = []
+        self._restrictions = []
 
     async def load_config(self, character: str, launcher_type: str):
         config = ConfigManager(f"plugins/Waifu/water/cards/{character}", f"plugins/Waifu/water/templates/default_{launcher_type}")
@@ -27,13 +28,14 @@ class Cards:
         self._assistant_name = config.data.get("assistant_name", "助手")
         self._language = config.data.get("language", "简体中文")
         self._profile = config.data.get("Profile", [])
-        self._profile = [f"你叫{self._assistant_name}。"] + self._profile
+        self._profile = [f"你是{self._assistant_name}。"] + self._profile
         self._skills = config.data.get("Skills", [])
         self._background = config.data.get("Background", [])
         if launcher_type == "person":
-            self._background.append(f"你是{self._assistant_name}，我是{self._user_name}。")
+            self._background.append(f"你是{self._assistant_name}，用户是{self._user_name}。")
         self._rules = config.data.get("Rules", [])
-        self._init = config.data.get("Init", "")
+        self._speaking = config.data.get("Speaking", [])
+        self._restrictions = config.data.get("Restrictions", [])
 
     def set_memory(self, memories: typing.List[str]):
         self._memories = memories
@@ -42,23 +44,16 @@ class Cards:
         self._manner = manner
 
     def get_background(self) -> str:
-        return "".join(self._background) if isinstance(self._background, list) else self._background
+        return self._list_to_prompt_str(self._background)
 
     def get_profile(self) -> str:
-        return "".join(self._profile)
+        return self._list_to_prompt_str(self._profile)
 
-    def generate_system_prompt(self) -> str:
-        sections = self._collect_prompt_sections()
-        return self._assemble_prompt(sections)
+    def get_restrictions(self) -> str:
+        return self._list_to_prompt_str(self._restrictions)
 
-    def _collect_prompt_sections(self) -> typing.List[typing.Tuple[str, typing.Any]]:
-        return [
-            ("Profile", [f"你叫{self._assistant_name}。"] + self._profile),
-            ("Skills", self._skills),
-            ("Background", self._background),
-            ("Memories", self._memories),
-            ("Init", self.get_rules()),
-        ]
+    def get_manner(self) -> str:
+        return self._manner
 
     def get_rules(self) -> str:
         init_parts = []
@@ -69,6 +64,24 @@ class Cards:
         if self._language:
             init_parts.append(f"你必须用默认的{self._language}与我交谈。")
         return "".join(init_parts)
+
+    def get_speaking(self) -> str:
+        return self._list_to_prompt_str(self._speaking)
+
+    def generate_system_prompt(self) -> str:
+        sections = self._collect_prompt_sections()
+        return self._assemble_prompt(sections)
+
+    def _collect_prompt_sections(self) -> typing.List[typing.Tuple[str, typing.Any]]:
+        return [
+            ("Profile", self._profile),
+            ("Speaking Style", self._speaking),
+            ("Skills", self._skills),
+            ("Background", self._background),
+            ("Memories", self._memories),
+            ("Restrictions", self._restrictions),
+            ("Rules", self.get_rules()),
+        ]
 
     def _assemble_prompt(self, sections: typing.List[typing.Tuple[str, typing.Any]]) -> str:
         prompt_parts = []
@@ -85,8 +98,8 @@ class Cards:
             return text + "。"
         return text
 
-    def _list_to_prompt_str(self, content_list: list, prefix: str = "") -> str:
-        if isinstance(content_list, list):
-            return "".join([prefix + self._ensure_punctuation(item) for item in content_list])
+    def _list_to_prompt_str(self, content: list | str, prefix: str = "") -> str:
+        if isinstance(content, list):
+            return "".join([prefix + self._ensure_punctuation(item) for item in content])
         else:
-            return self._ensure_punctuation(content_list)
+            return self._ensure_punctuation(content)

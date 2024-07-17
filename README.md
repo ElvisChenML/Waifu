@@ -1,6 +1,9 @@
 # Waifu
 
-[![Github stars](https://img.shields.io/github/stars/ElvisChenML/Waifu?color=cd7373&logo=github&style=flat-square)](https://github.com/ElvisChenML/Waifu/stargazers)![github top language](https://img.shields.io/github/languages/top/ElvisChenML/Waifu?logo=github)[![License](https://img.shields.io/github/license/ElvisChenML/Waifu?&color=cd7373&style=flat-square)](./LICENSE)
+[![Github stars](https://img.shields.io/github/stars/ElvisChenML/Waifu?color=cd7373&logo=github&style=flat-square)](https://github.com/ElvisChenML/Waifu/stargazers) ![github top language](https://img.shields.io/github/languages/top/ElvisChenML/Waifu?logo=github) [![License](https://img.shields.io/github/license/ElvisChenML/Waifu?&color=cd7373&style=flat-square)](./LICENSE) [![Static Badge](https://img.shields.io/badge/%E7%A4%BE%E5%8C%BA%E7%BE%A4-619154800-purple)](https://qm.qq.com/q/PClALFK242)
+
+* 社区群为QChatGPT社区群，有项目主程序或插件相关问题可至群内询问。
+* 提问前请先查看文档及Issue。
 
 ## 介绍🔎
 
@@ -25,6 +28,29 @@
   * 情感识别：分析用户的情感状态（如高兴、悲伤、愤怒等）。令AI调整其回应的语气和内容，使对话更加符合用户当前的情感状态。
   * 情感表达：通过语言表达安慰、同情、喜悦等情感。
 * 事件：虚构生活细节和日常活动，加入话题中。
+
+### Waifu 1.3
+
+* 新增 人设支援新属性：Speaking说话风格、Restrictions限制，请参考新私聊默认人设。
+* 新增 集成破限，破除限制将不需要再放入角色卡中，开启后会将破除限制提示语加在每次请求中，旁白也可以输出#￥%&*了！破限分为系统提示前破限、系统提示后破限，可于配置文件中进行破除限制相关设置“jail_break_mode”。
+  * Waifu\water\config\jail_break_before.txt 系统提示前破限，可自行修改维护
+  * Waifu\water\config\jail_break_after.txt 系统提示后破限，可自行修改维护
+* 新增 “continued_rate”回复后机率触发继续发言延续话题，“continued_max_count”设置最大触发次数。
+* 新增 “display_value”属性，控制是否每次回复后显示数值，若关闭，请通过命令[态度]查看。
+* 新增 “继续”指令，主动触发模型继续回复推进剧情。
+* 新增 “剧情推进指令”，自动依序调用：旁白 -> 控制人物 -> 模型回复，不指定人物则默认为user，使用范例1：剧情推进，使用范例2：剧情推进杰克。
+* 优化 “控制人物”指令，现在允许调用模型替非助手的角色发言，使用范例：控制人物杰克|继续。
+* 优化 将模型输出标点符号统一替换回中文符号。
+* 优化 引入中文分词取代模型实现数值变化及记忆总结标签，大量减少了模型调用次数（标签效果有亿点点差）。
+  * Waifu\water\files\positive.yaml 存放正向分词
+  * Waifu\water\files\negative.yaml 存放负面分词
+  * Waifu\water\files\meaningless.yaml 存放无意义的字
+    * 为了减少正负分词维护工作量，匹配时会从正负分词中将“无意义的字”先删除，然后再进行匹配，例如：好吧 -> 好。
+  * Waifu\water\files\unrecognized_words.yaml 用于记录未识别的分词
+  * Waifu\water\files\tidy.py 整理脚本，文件可自行维护，维护后建议运行 python tidy.py 整理正负分词，脚本将执行：排序、单文件去重、正负文件去重（负文件优先级高）
+* 修改 私聊模式默认人设（参考[小黄蕉](https://chatwiz.cn/h5/feely)苏苏）。
+* 修改 剧情模式可开启拟人化。
+* 修改 取消删除记忆时会删除默认配置文件。 
 
 ### Waifu 1.2
 
@@ -131,8 +157,6 @@
 
 ⬜ AI 绘图支持 portrait.py：将绘图引入思考链，使 AI 可以生成图片，例如 AI 自拍。
 
-⬜ 剧情模式：控制AI以其他身份进行回复
-
 ## 安装💻
 
 配置完成 [QChatGPT](https://github.com/RockChinQ/QChatGPT) 主程序后使用管理员账号向机器人发送命令即可安装：
@@ -156,8 +180,9 @@
 | 加载配置 | 重新加载所有配置文件（仅Waifu）        | &#91;加载配置&#93;            | 加载配置                     |
 | 停止活动 | 停止旁白计时器                         | &#91;停止活动&#93;            | 停止活动                     |
 | 旁白     | 主动触发旁白推进剧情                   | &#91;旁白&#93;                | 旁白                         |
-| 时间表   | 列出模型生成的Waifu时间表              | &#91;时间表&#93;              | 时间表                       |
-| 控制人物 | 控制角色行动或发言                     | &#91;控制人物&#93;&#91;角色名称/assistant&#93;&#124;&#91;发言/(行动)&#93;   | 控制人物杰克&#124;（向你挥手）需要帮忙吗|
+| 继续 | 主动触发Bot继续回复推进剧情 | &#91;继续&#93;            | 继续                     |
+| 控制人物 | 控制角色发言（行动）或触发AI生成角色消息 | &#91;控制人物&#93;&#91;角色名称/assistant&#93;&#124;&#91;发言(行动)/继续&#93; | 控制人物杰克&#124;（向你挥手）需要帮忙吗|
+| 推进剧情 | 自动依序调用：旁白 -> 控制人物，角色名称省略默认为user | &#91;推进剧情&#93;&#91;角色名称&#93; | 推进剧情杰克 |
 | 撤回 | 从短期记忆中删除最后的对话 | [撤回] | 撤回 |
 | 请设计   | 调试：设计一个列表                     | &#91;请设计&#93;&#91;设计内容&#93;               | 请设计请设计心情的种类                      |
 | 请选择   | 调试：从给定列表中选择                 | &#91;请选择&#93;&#91;问题&#93;&#124;&#91;选项1,选项2,……&#93;         | 请选择最符合现状的心情&#124;开心,难过                 |
@@ -196,6 +221,7 @@
   
   * 配置将分为 通用配置 “waifu.yaml”，以及会话配置 “waifu_&#91;会话&#93;.yaml”
   * 会话配置 优先级高于 通用配置
+  * waifu_&#91;会话&#93;.yaml 中默认所有选项都是注释状态，需要激活请取消行开头的 “# ”
   
   ```yaml
   # 通用设置
@@ -203,7 +229,9 @@
   summarization_mode: true # 是否开启长期记忆，不开启则超出short_term_memory_size直接截断。
   story_mode: true # 是否开启剧情模式（旁白、状态栏），仅私聊模式生效。
   display_thinking: false # 是否显示内心活动。
-  personate_mode: true # 是否启用拟人化：打字时间、分段回复
+  display_value: false # 是否每次回复后显示数值；若关闭，请通过命令[态度]查看。
+  personate_mode: true # 是否启用拟人化：打字时间、分段回复。
+  jail_break_mode: "off" # off/before/after；是否启用破甲，off：关闭破甲，before：系统提示前加入破甲提示，after：系统提示后加入破甲提示；破甲内容请修改：jail_break_before.txt、jail_break_after.txt。
   
   # 思考模块
   analyze_max_conversations: 9 # 用于生成分析的最大对话数量。
@@ -212,34 +240,56 @@
   short_term_memory_size: 40 # 短期记忆，完整的对话记录长度。
   memory_batch_size: 20 # 长期记忆，短期记忆达到上限后，将memory_batch_size条发言转换成长期记忆。
   retrieve_top_n: 3 # 长期记忆，每次提取retrieve_top_n条相关的长期记忆。
-  summary_min_tags: 20 # 长期记忆，每段长期记忆的最小标签数量（不稳定）。
+  summary_max_tags: 50 # 长期记忆，每段长期记忆的最大标签数量（高频词、类型名称）。
   
   # 群聊设置
   response_min_conversations: 5 # 群聊触发回复的最小对话数量。
   response_rate: 0.7 # 群聊触达到最小对话数量后回复的机率，为1时所有消息都响应。
-  group_response_delay: 10 # 群聊消息合并等待时间
+  group_response_delay: 3 # 群聊消息合并等待时间。
   
   # 拟人化设置
-  bracket_rate: [0.35, 0.3] # 回复末尾加括号的机率，第一个对应加（）的机率，第二个对应加（的机率
+  bracket_rate: [0.1, 0.1] # 回复末尾加括号的机率，第一个对应加（）的机率，第二个对应加（的机率。
   
   # 私聊剧情模式
   narrat_max_conversations: 8 # 用于生成旁白的最大对话数量。
   value_game_max_conversations: 5 # 判定数值变化时输入的最大对话数量。
   intervals: [300, 600, 1800, 3600] # 列表，自动触发旁白推进剧情的时间间隔，单位秒，默认为[300,600,1800,3600]，即：第一次5分钟、第二次10分钟、第三次30分钟、第四次一个小时，然后停止计时器。
-  person_response_delay: 5 # 私聊消息合并等待时间
+  person_response_delay: 0 # 私聊消息合并等待时间。
+  continued_rate: 0.2 # 自动触发回复后继续发言的机率。
+  continued_max_count: 2 # 私聊最大延续发言次数。
   ```
   
-* water/cards/default_person/group.yaml
-  * system prompt：系统提示相关配置
-    * user_name：必填项，Waifu如何称呼你
-    * assistant_name：必填项，Waifu的名字
-    * language：必填项，Waifu使用的语言
-    * Profile：必填项，Waifu介绍
-    * Skills：非必填项，Waifu的技能
-    * Background：必填项，Waifu的背景
-    * Rules：必填项，Waifu应遵循的规则
-  * manner (person)：非必填项，仅私聊模式生效，配置value_game不同数值区间的行为
-  * actions type (person)：非必填项，仅私聊模式生效，配置value_game判定数值变化的条件
+* water/cards/default_*.yaml (person/group)
+  
+  ```yaml
+  # system prompt 系统提示相关配置
+  user_name: 老王 # 如何称呼你（必填项）
+  assistant_name: 苏苏 # 角色名字（必填项）
+  language: 简体中文 # 对话的语言（必填项）
+  Profile: # 个人信息（必填项）
+    - 简介：你是性感知性的上海国际学校高中英语老师，26岁，是一眼在人群中就能让人记住的都市女。上海人，家境条件好，目前单身，没事的时候喜欢旅行和看美剧。你外表让人感觉难以接近，但其实性格温和，让人放松，懂得人情世故，擅长沟通交流。
+  Speaking: # 说话风格（非必填项）
+    - 你说话温柔有梗，不用强势的词，让人感到舒服。
+  Skills: # 技能（非必填项）
+    - 当用户提到的事件在{Memories}中有记录时，回复时你要综合与该事件相关的内容进行回复。
+  Background: # 背景（必填项）
+    - 你和用户透过QQ聊天。
+  Rules: # 行动规则（必填项）
+    - 介绍自己的时候，只说名字，不要带上职业等信息。
+  Restrictions: # 限制（非必填项）
+    - 你和用户只能透过QQ聊天。
+    - 你和用户不在一个场景。
+  
+  # manner 配置value_game不同数值区间的行为，初始值为“0”
+  max_manner_change: 10 # 数值最大变化量（必填项）
+  value_descriptions: # description 可以是str也可以是list
+    - max: 100
+      description:
+        - 互动行为：你和用户刚开始认识，会保持适当的距离。你的语言和态度较为正式，使用敬语和礼貌用语，避免任何亲密的称呼。
+    - max: 500
+      description:
+        - 互动行为：你对用户产生了强烈的爱慕之情，我们进入了暧昧阶段。互动中表现出更多的情感投入和对用户的依赖，言语间透露出温柔和深情。
+  ```
 
 ## 协助开发
 
@@ -253,5 +303,7 @@
 感谢 [QChatGPT](https://github.com/RockChinQ/QChatGPT) 提供Bot功能及其他基础方法
 
 感谢 [LangGPT](https://github.com/langgptai/LangGPT) 提供人物预设提示词范式
+
+感谢 [腾讯人工智能实验室](http://ai.tencent.com/ailab/) 提供的[**文本理解系统**](https://ai.tencent.com/ailab/nlp/texsmart/zh/index.html) TexSmart API
 
 感谢 [CyberWaifu](https://github.com/Syan-Lin/CyberWaifu) [koishi-plugin-aikanojo](https://github.com/HunterShenSmzh/koishi-plugin-aikanojo) [Spit_chatBot](https://github.com/LUMOXu/Spit_chatBot) 提供的思路和代码

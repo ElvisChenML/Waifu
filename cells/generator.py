@@ -28,13 +28,17 @@ class Generator:
     def __init__(self, host: APIHost):
         self.host = host
         self.ap = host.ap
+        self._jail_break = ""
+        self._jail_break_type = ""
 
-    def get_full_prompts(
-        self, user_prompt: str, output_format: str = "JSON list", system_prompt: str = None
-    ) -> typing.List[llm_entities.Message]:
+    def _get_question_prompts(self, user_prompt: str, output_format: str = "JSON list", system_prompt: str = None) -> typing.List[llm_entities.Message]:
         messages = []
+        if self._jail_break and self._jail_break_type == "before":
+            messages.append(llm_entities.Message(role="system", content=self._jail_break))
         if system_prompt:
             messages.append(llm_entities.Message(role="system", content=system_prompt))
+        if self._jail_break and self._jail_break_type == "after":
+            messages.append(llm_entities.Message(role="system", content=self._jail_break))
 
         task = {
             "task": user_prompt,
@@ -47,8 +51,12 @@ class Generator:
 
     def _get_chat_prompts(self, user_prompt: str, system_prompt: str = None) -> typing.List[llm_entities.Message]:
         messages = []
+        if self._jail_break and self._jail_break_type == "before":
+            messages.append(llm_entities.Message(role="system", content=self._jail_break))
         if system_prompt:
             messages.append(llm_entities.Message(role="system", content=system_prompt))
+        if self._jail_break and self._jail_break_type == "after":
+            messages.append(llm_entities.Message(role="system", content=self._jail_break))
         messages.append(llm_entities.Message(role="user", content=user_prompt))
         return self._save_token(messages)
 
@@ -63,12 +71,12 @@ class Generator:
     async def select_from_list(self, question: str, options: list, system_prompt: str = None) -> str:
         model_info = await self.ap.model_mgr.get_model_by_name(self.ap.provider_cfg.data["model"])
         prompt = f"""Please select the most suitable option from the given list based on the question. Question: {question} List: {options}. Ensure your answer contains only one option from the list and no additional explanation or context."""
-        messages = self.get_full_prompts(prompt, output_format="text", system_prompt=system_prompt)
+        messages = self._get_question_prompts(prompt, output_format="text", system_prompt=system_prompt)
 
         self.ap.logger.info("发送请求：\n{}".format(self.messages_to_readable_str(messages)))
 
         response = await model_info.requester.call(model=model_info, messages=messages)
-        cleaned_response = self.clean_response(response.readable_str())
+        cleaned_response = self.clean_response(response.content)
 
         self.ap.logger.info("模型回复：\n{}".format(cleaned_response))
         return cleaned_response
@@ -77,26 +85,39 @@ class Generator:
     async def return_list(self, question: str, system_prompt: str = None, generate_tags: bool = False) -> list:
         model_info = await self.ap.model_mgr.get_model_by_name(self.ap.provider_cfg.data["model"])
         prompt = f"""Please design a list of types based on the question and return the answer in JSON list format. Question: {question} Ensure your answer is strictly in JSON list format, for example: ["Type1", "Type2", ...]."""
-        messages = self.get_full_prompts(prompt, output_format="JSON list", system_prompt=system_prompt)
+        messages = self._get_question_prompts(prompt, output_format="JSON list", system_prompt=system_prompt)
 
         self.ap.logger.info("发送请求：\n{}".format(self.messages_to_readable_str(messages)))
 
         response = await model_info.requester.call(model=model_info, messages=messages)
-        cleaned_response = self.clean_response(response.readable_str())
+        cleaned_response = self.clean_response(response.content)
 
         self.ap.logger.info("模型回复：\n{}".format(cleaned_response))
         return self._parse_json_list(cleaned_response, generate_tags)
 
     @handle_errors
-    async def return_number(self, question: str, system_prompt: str = None) -> int:
+    async def return_json(self, question: str, system_prompt: str = None, generate_tags: bool = False) -> list:
         model_info = await self.ap.model_mgr.get_model_by_name(self.ap.provider_cfg.data["model"])
-        prompt = f"""Please determine the numeric answer based on the question and return the answer as a number. Ensure your answer is a single number with no additional explanation or context. Question: {question}"""
-        messages = self.get_full_prompts(prompt, output_format="number", system_prompt=system_prompt)
+        messages = self._get_question_prompts(question, output_format="JSON", system_prompt=system_prompt)
 
         self.ap.logger.info("发送请求：\n{}".format(self.messages_to_readable_str(messages)))
 
         response = await model_info.requester.call(model=model_info, messages=messages)
-        cleaned_response = self.clean_response(response.readable_str())
+        cleaned_response = self.clean_response(response.content)
+
+        self.ap.logger.info("模型回复：\n{}".format(cleaned_response))
+        return cleaned_response
+
+    @handle_errors
+    async def return_number(self, question: str, system_prompt: str = None) -> int:
+        model_info = await self.ap.model_mgr.get_model_by_name(self.ap.provider_cfg.data["model"])
+        prompt = f"""Please determine the numeric answer based on the question and return the answer as a number. Ensure your answer is a single number with no additional explanation or context. Question: {question}"""
+        messages = self._get_question_prompts(prompt, output_format="number", system_prompt=system_prompt)
+
+        self.ap.logger.info("发送请求：\n{}".format(self.messages_to_readable_str(messages)))
+
+        response = await model_info.requester.call(model=model_info, messages=messages)
+        cleaned_response = self.clean_response(response.content)
 
         self.ap.logger.info("模型回复：\n{}".format(cleaned_response))
         return self._parse_number(cleaned_response)
@@ -104,12 +125,12 @@ class Generator:
     @handle_errors
     async def return_string(self, question: str, system_prompt: str = None) -> str:
         model_info = await self.ap.model_mgr.get_model_by_name(self.ap.provider_cfg.data["model"])
-        messages = self.get_full_prompts(question, output_format="text", system_prompt=system_prompt)
+        messages = self._get_question_prompts(question, output_format="text", system_prompt=system_prompt)
 
         self.ap.logger.info("发送请求：\n{}".format(self.messages_to_readable_str(messages)))
 
         response = await model_info.requester.call(model=model_info, messages=messages)
-        cleaned_response = self.clean_response(response.readable_str())
+        cleaned_response = self.clean_response(response.content)
 
         self.ap.logger.info("模型回复：\n{}".format(cleaned_response))
         return cleaned_response
@@ -122,7 +143,7 @@ class Generator:
         self.ap.logger.info("发送请求：\n{}".format(self.messages_to_readable_str(messages)))
 
         response = await model_info.requester.call(model=model_info, messages=messages)
-        cleaned_response = self.clean_response(response.readable_str())
+        cleaned_response = self.clean_response(response.content)
 
         self.ap.logger.info("模型回复：\n{}".format(cleaned_response))
         return cleaned_response
@@ -135,18 +156,17 @@ class Generator:
         self.ap.logger.info("发送请求：\n{}".format(self.messages_to_readable_str(messages)))
 
         response = await model_info.requester.call(model=model_info, messages=messages)
-        cleaned_response = self.clean_response(response.readable_str())
+        cleaned_response = self.clean_response(response.content)
 
         self.ap.logger.info("模型回复：\n{}".format(cleaned_response))
         return cleaned_response
 
     def clean_response(self, response: str) -> str:
-        colon_index = response.find(": ")
-        if colon_index != -1:
-            return response[colon_index + 2 :]
-        else:
-            self.ap.logger.info("Unexpected reply: {}".format(response))
-            return "Unexpected reply"
+        # 使用正则表达式去掉冒号前的内容，包括冒号和可能存在的空格（避免模型回复成 苏苏：!@#!@#$）
+        cleaned_response = re.sub(r"^[^:：]*[:：]\s*", "", response)
+        # 删除特定字符串
+        cleaned_response = cleaned_response.replace("<结束无效提示>", "")
+        return cleaned_response
 
     def _parse_json_list(self, response: str, generate_tags: bool = False) -> list:
         try:
@@ -220,6 +240,7 @@ class Generator:
                 new_messages.append(new_message)
 
         return new_messages
+
     def messages_to_readable_str(self, messages: typing.List[llm_entities.Message]) -> str:
         return "\n".join(message.readable_str() for message in messages)
 
@@ -227,3 +248,7 @@ class Generator:
         current_time = datetime.now()
         chinese_time = current_time.strftime("%y年%m月%d日%H时%M分")
         return chinese_time
+
+    def set_jail_break(self, jail_break: str, type: str):
+        self._jail_break = jail_break
+        self._jail_break_type = type

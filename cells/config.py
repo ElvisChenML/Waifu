@@ -79,6 +79,10 @@ class ConfigManager:
                 else:
                     new_config_lines.append(line)
 
+            # 将新的配置写回文件
+            with open(self.config_file, "w", encoding="utf-8") as config_file:
+                config_file.writelines(new_config_lines)
+
             # 其他补充配置或校验逻辑
             # 例如：验证配置项的值是否在合理范围内，初始化某些依赖项等
 
@@ -88,21 +92,23 @@ class ConfigManager:
 
         new_config_lines = []
         for line in config_lines:
-            if ":" in line:
-                key_value_comment = line.split("#", 1)
-                key_value = key_value_comment[0].split(":", 1)
-                if len(key_value) == 2:
-                    key = key_value[0].strip()
-                    comment = f" #{key_value_comment[1]}" if len(key_value_comment) > 1 else ""
-                    if key in self.data:
-                        value = self.data[key]
-                        new_config_lines.append(f"{key}: {value}{comment}\n")
+            stripped_line = line.strip()
+            if stripped_line:
+                if ":" in stripped_line:
+                    key_value_comment = stripped_line.split("#", 1)
+                    key_value = key_value_comment[0].split(":", 1)
+                    if len(key_value) == 2:
+                        key = key_value[0].strip()
+                        comment = f" #{key_value_comment[1]}" if len(key_value_comment) > 1 else ""
+                        if key in self.data:
+                            value = self.data[key]
+                            new_config_lines.append(f"{key}: {value}{comment}")
+                        else:
+                            new_config_lines.append(line)
                     else:
                         new_config_lines.append(line)
                 else:
                     new_config_lines.append(line)
-            else:
-                new_config_lines.append(line)
 
         with open(self.config_file, "w", encoding="utf-8") as config_file:
             config_file.writelines(new_config_lines)

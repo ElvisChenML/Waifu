@@ -2,6 +2,8 @@ import typing
 import numpy as np
 import json
 import os
+import re
+from plugins.Waifu.cells.text_analyzer import TextAnalyzer
 from plugins.Waifu.cells.generator import Generator
 from pkg.plugin.context import APIHost
 from pkg.provider import entities as llm_entities
@@ -20,6 +22,7 @@ class Memory:
         self.response_rate = 0.7
         self.user_name = "用户"
         self.assistant_name = "助手"
+        self._text_analyzer = TextAnalyzer(host)
         self._launcher_id = launcher_id
         self._launcher_type = launcher_type
         self._generator = Generator(host)
@@ -28,7 +31,7 @@ class Memory:
         self._short_term_memory_size = 100
         self._memory_batch_size = 50
         self._retrieve_top_n = 5
-        self._summary_min_tags = 20
+        self._summary_max_tags = 50
         self._long_term_memory_file = f"plugins/Waifu/water/data/memories_{launcher_id}.json"
         self._conversations_file = f"plugins/Waifu/water/data/conversations_{launcher_id}.log"
         self._short_term_memory_file = f"plugins/Waifu/water/data/short_term_memory_{launcher_id}.json"
@@ -46,7 +49,7 @@ class Memory:
         self._short_term_memory_size = waifu_config.data["short_term_memory_size"]
         self._memory_batch_size = waifu_config.data["memory_batch_size"]
         self._retrieve_top_n = waifu_config.data["retrieve_top_n"]
-        self._summary_min_tags = waifu_config.data["summary_min_tags"]
+        self._summary_max_tags = waifu_config.data["summary_max_tags"]
         self._summarization_mode = waifu_config.data.get("summarization_mode", False)
 
         self.analyze_max_conversations = waifu_config.data.get("analyze_max_conversations", 9)
@@ -63,37 +66,47 @@ class Memory:
     async def _tag_conversations(self, conversations: typing.List[llm_entities.Message]) -> typing.Tuple[str, typing.List[str]]:
         if len(conversations) > 1:
             memory = await self._generate_summary(conversations)
-            user_prompt_tags = f"""请为这份摘要“{memory}”生成有意义且具有代表性的标签。"""
         else:
-            memory = conversations[0].content
-            user_prompt_tags = f"请为这段文字“{memory}”生成有意义且具有代表性的标签。"
+            memory = self.get_last_content(conversations, 5)
 
-        user_prompt_tags += f"""关注对话中的关键信息和主要讨论主题。提供至少{self._summary_min_tags}个简体中文标签。忽略时间戳和不相关的细节。确保输出是仅包含标签的有效JSON列表。不要包含任何附加信息、评论或解释。标签应格式为单词或简短短语，每个标签不超过3个字。"""
+        # 使用TexSmart HTTP API生成词频统计并获取i18n信息和related信息
+        term_freq_counter, i18n_list, related_list = self._text_analyzer.term_freq(memory)
 
-        system_prompt_tags = "你是总结对话并生成简明标签的专家。确保输出是仅包含标签的有效 JSON 列表。不要包含任何附加信息、评论或解释。"
+        # 从词频统计中提取前N个高频词及其i18n标签作为标签
+        top_n = self._summary_max_tags - len(i18n_list)
+        tags = []
 
-        tags = await self._generator.return_list(user_prompt_tags, system_prompt_tags, True)
+        # 提取前top_n个高频词
+        for word, freq in term_freq_counter.most_common(top_n):
+            tags.append(word)
+
+        # 加入i18n标签
+        tags.extend(i18n_list)
+
+        # 若为提取记忆，则将结构返回的related也加入tags
+        if len(conversations) <= 1:
+            tags.extend(related_list)
+
         return memory, tags
 
     async def _generate_summary(self, conversations: typing.List[llm_entities.Message]) -> str:
-        _, conversations_str = self.get_conversations_str_for_person(conversations)
+        user_prompt_summary = ""
+        if self._launcher_type == "person":
+            _, conversations_str = self.get_conversations_str_for_person(conversations)
+            user_prompt_summary = f"""总结以下对话中的最重要细节和事件: "{conversations_str}"。将总结限制在200字以内。总结应使用中文书写，并以过去式书写。你的回答应仅包含总结。"""
+        else:
+            conversations_str = self.get_conversations_str_for_group(conversations)
         user_prompt_summary = f"""总结以下对话中的最重要细节和事件: "{conversations_str}"。将总结限制在200字以内。总结应使用中文书写，并以过去式书写。你的回答应仅包含总结。"""
 
         return await self._generator.return_string(user_prompt_summary)
 
     async def _tag_and_add_conversations(self):
         if self.short_term_memory:
-            summary, tags = await self._tag_conversations(self.short_term_memory[:self._memory_batch_size])
-            self._log_new_memories(summary, tags)
-            self._add_conversations(summary, tags)
-            self.short_term_memory = self.short_term_memory[self._memory_batch_size:]
+            summary, tags = await self._tag_conversations(self.short_term_memory[: self._memory_batch_size])
+            self.short_term_memory = self.short_term_memory[self._memory_batch_size :]
+            self._add_long_term_memory(summary, tags)
             self._save_long_term_memory_to_file()
             self._save_short_term_memory_to_file()
-
-    def _log_new_memories(self, summary: str, tags: typing.List[str]):
-        short_term_memory_str = " | ".join([conv.readable_str() for conv in self.short_term_memory[:self._memory_batch_size]])
-        formatted_tags = ", ".join(tags)
-        self.ap.logger.info(f"New memories: {short_term_memory_str}\nSummary: {summary}\nTags: {formatted_tags}")
 
     def _save_conversations_to_file(self, conversations: typing.List[llm_entities.Message]):
         try:
@@ -103,7 +116,9 @@ class Memory:
         except Exception as e:
             self.ap.logger.error(f"Error saving conversations to file '{self._conversations_file}': {e}")
 
-    def _add_conversations(self, summary: str, tags: typing.List[str]):
+    def _add_long_term_memory(self, summary: str, tags: typing.List[str]):
+        formatted_tags = ", ".join(tags)
+        self.ap.logger.info(f"New memories: \nSummary: {summary}\nTags: {formatted_tags}")
         self._long_term_memory.append((summary, tags))
         for tag in tags:
             if tag not in self._tags_index:
@@ -133,7 +148,7 @@ class Memory:
             self.ap.logger.info(f"Similarity: {similarity}, Tags: {tags}")
 
         similarities.sort(reverse=True, key=lambda x: x[0])
-        return [summary for _, summary in similarities[:self._retrieve_top_n]]
+        return [summary for _, summary in similarities[: self._retrieve_top_n]]
 
     async def save_memory(self, role: str, content: str):
         time = self._generator.get_chinese_current_time()
@@ -147,7 +162,7 @@ class Memory:
             if self._summarization_mode:
                 await self._tag_and_add_conversations()
             else:
-                self.short_term_memory = self.short_term_memory[self._short_term_memory_size:]
+                self.short_term_memory = self.short_term_memory[self._short_term_memory_size :]
 
     async def remove_last_memory(self) -> str:
         if self.short_term_memory:
@@ -158,6 +173,7 @@ class Memory:
     async def load_memory(self, conversations: typing.List[llm_entities.Message]) -> typing.List[str]:
         if not self._long_term_memory:
             return []
+        self.ap.logger.info("记忆加载中")
         _, tags = await self._tag_conversations(conversations)
         return self._retrieve_related_memories(tags)
 
@@ -174,7 +190,6 @@ class Memory:
             self._conversations_file,
             self._short_term_memory_file,
             self._status_file,
-            f"plugins/Waifu/water/cards/default_{self._launcher_type}.yaml",
             f"plugins/Waifu/water/data/life_{self._launcher_id}.json",
         ]
 
@@ -192,23 +207,14 @@ class Memory:
     def _save_long_term_memory_to_file(self):
         try:
             with open(self._long_term_memory_file, "w", encoding="utf-8") as file:
-                json.dump(
-                    {
-                        "long_term": [{"summary": summary, "tags": tags} for summary, tags in self._long_term_memory],
-                        "tags_index": self._tags_index
-                    },
-                    file, ensure_ascii=False, indent=4
-                )
+                json.dump({"long_term": [{"summary": summary, "tags": tags} for summary, tags in self._long_term_memory], "tags_index": self._tags_index}, file, ensure_ascii=False, indent=4)
         except Exception as e:
             self.ap.logger.error(f"Error saving memory to file '{self._long_term_memory_file}': {e}")
 
     def _save_short_term_memory_to_file(self):
         try:
             with open(self._short_term_memory_file, "w", encoding="utf-8") as file:
-                json.dump(
-                    [{"role": conv.role, "content": conv.content} for conv in self.short_term_memory],
-                    file, ensure_ascii=False, indent=4
-                )
+                json.dump([{"role": conv.role, "content": conv.content} for conv in self.short_term_memory], file, ensure_ascii=False, indent=4)
         except Exception as e:
             self.ap.logger.error(f"Error saving memory to file '{self._short_term_memory_file}': {e}")
 
@@ -251,34 +257,54 @@ class Memory:
         speakers = []
         conversations_str = ""
         listener = self.assistant_name
+        date_time_pattern = re.compile(r"\[\d{2}年\d{2}月\d{2}日\d{2}时\d{2}分\]")
+
         for message in conversations:
             role = self.to_custom_names(message.role)
-            # 提取括号后的内容
-            content = str(message.get_content_mirai_message_chain()).split("] ", 1)[-1]
+            content = str(message.get_content_mirai_message_chain())
+
+            # 提取并移除日期时间信息
+            date_time_match = date_time_pattern.search(content)
+            if date_time_match:
+                date_time_str = date_time_match.group(0)
+                content = content.replace(date_time_str, "").strip()
+            else:
+                date_time_str = ""
 
             if role == "narrator":
                 conversations_str += f"{self.to_custom_names(content)}"
-            else:                
-                if speakers:  # 聆听者为上一个发言者
-                    if role != speakers[-1]: # 不为连续发言
+            else:
+                if speakers:
+                    if role != speakers[-1]:
                         listener = speakers[-1]
-                elif role == self.assistant_name: # 仅speaker为空时生效
+                elif role == self.assistant_name:
                     listener = self.user_name
-                conversations_str += f"{role}对{listener}说：“{content}”。"
-                if role in speakers:  # 该容器兼顾保存最后一个发言者，不是单纯的set
+                conversations_str += f"{date_time_str}{role}对{listener}说：“{content}”。"
+                if role in speakers:
                     speakers.remove(role)
                 speakers.append(role)
         return speakers, conversations_str
 
     def get_conversations_str_for_group(self, conversations: typing.List[llm_entities.Message]) -> str:
         conversations_str = ""
+        date_time_pattern = re.compile(r"\[\d{2}年\d{2}月\d{2}日\d{2}时\d{2}分\]")
+
         for message in conversations:
             role = message.role
             if role == "assistant":
                 role = "你"
-            # 提取括号后的内容
-            content = str(message.get_content_mirai_message_chain()).split("] ", 1)[-1]
-            conversations_str += f"{role}说：“{content}”。"
+
+            content = str(message.get_content_mirai_message_chain())
+            date_time_match = date_time_pattern.search(content)
+
+            if date_time_match:
+                date_time_str = date_time_match.group(0)
+                content = content.replace(date_time_str, "").strip()
+            else:
+                date_time_str = ""
+
+            conversations_str += f"{date_time_str}{role}说：“{content}”。"
+
         return conversations_str
 
     def get_unreplied_msg(self, unreplied_count: int) -> typing.Tuple[int, typing.List[llm_entities.Message]]:
@@ -301,23 +327,38 @@ class Memory:
     def get_last_role(self, conversations: typing.List[llm_entities.Message]) -> str:
         return self.to_custom_names(conversations[-1].role) if conversations else ""
 
-    def get_last_content(self, conversations: typing.List[llm_entities.Message]) -> str:
-        return str(conversations[-1].get_content_mirai_message_chain()).split("] ", 1)[-1] if conversations else ""
+    def get_last_content(self, conversations: typing.List[llm_entities.Message], n: int = 1) -> str:
+        if not conversations:
+            return ""
+
+        last_messages = conversations[-n:] if n <= len(conversations) else conversations
+        combined_content = ""
+        for message in last_messages:
+            message_content = str(message.get_content_mirai_message_chain())
+            message_content = self.to_custom_names(message_content)
+            match = re.search(r"\[\d{2}年\d{2}月\d{2}日\d{2}时\d{2}分\]", message_content)
+            if match:
+                # 获取匹配到的时间戳后的内容
+                content_after_timestamp = message_content[match.end() :].strip()
+                combined_content += content_after_timestamp + " "
+            else:
+                combined_content += message_content + " "
+
+        return combined_content.strip()
 
     def to_custom_names(self, text: str) -> str:
-        text = text.replace("User", self.user_name)
-        text = text.replace("user", self.user_name)
-        text = text.replace("用户", self.user_name)
-        text = text.replace("Assistant", self.assistant_name)
-        text = text.replace("assistant", self.assistant_name)
-        text = text.replace("助理", self.assistant_name)
+        text = re.sub(r"user", self.user_name, text, flags=re.IGNORECASE)
+        text = re.sub(r"用户", self.user_name, text, flags=re.IGNORECASE)
+        text = re.sub(r"assistant", self.assistant_name, text, flags=re.IGNORECASE)
+        text = re.sub(r"助理", self.assistant_name, text, flags=re.IGNORECASE)
         return text
 
     def to_generic_names(self, text: str) -> str:
-        text = text.replace("User", "user")
-        text = text.replace("用户", "user")
-        text = text.replace("Assistant", "assistant")
-        text = text.replace("助理", "assistant")
-        text = text.replace(self.user_name, "user")
-        text = text.replace(self.assistant_name, "assistant")
+        text = re.sub(self.user_name, "user", text, flags=re.IGNORECASE)
+        text = re.sub(r"用户", "user", text, flags=re.IGNORECASE)
+        text = re.sub(self.assistant_name, "assistant", text, flags=re.IGNORECASE)
+        text = re.sub(r"助理", "assistant", text, flags=re.IGNORECASE)
         return text
+
+    def set_jail_break(self, jail_break: str, type: str):
+        self._generator.set_jail_break(jail_break, type)
