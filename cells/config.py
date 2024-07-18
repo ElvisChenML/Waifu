@@ -11,12 +11,17 @@ class ConfigManager:
         self.template_file = f"{template_name}.yaml"
         self.template_data = {}
         self.launcher_id = launcher_id
-        self.data = None
+        self.data = {}
 
     async def load_config(self, completion: bool = True):
-        if not os.path.exists(self.config_file) and os.path.exists(self.template_file):
-            # 如果配置文件不存在，并且提供了模板，则使用模板创建配置文件
-            shutil.copyfile(self.template_file, self.config_file)
+        if not os.path.exists(self.config_file):
+            if os.path.exists(self.template_file):
+                # 如果配置文件不存在，并且提供了模板，则使用模板创建配置文件
+                shutil.copyfile(self.template_file, self.config_file)
+                print(f'配置文件 {self.config_file} 已从模板 {self.template_file} 创建')
+            else:
+                # 如果模板文件不存在，输出相应的日志
+                print(f'模板文件 {self.template_file} 不存在，无法创建配置文件 {self.config_file}')
 
         with open(self.config_file, "r", encoding="utf-8") as config_file:
             self.data = yaml.safe_load(config_file)

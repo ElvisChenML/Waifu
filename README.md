@@ -45,12 +45,12 @@
   * 使用范例：控制人物杰克|继续
 * 优化 将模型输出标点符号统一替换回中文符号，去除回复头尾的的单双引号。
 * 优化 引入中文分词取代模型实现数值变化及记忆总结标签，大量减少了模型调用次数（标签效果有亿点点差）。
-  * Waifu\water\files\positive.yaml 存放正向分词
-  * Waifu\water\files\negative.yaml 存放负面分词
-  * Waifu\water\files\meaningless.yaml 存放无意义的字
+  * Waifu\water\config\positive.yaml 存放正向分词
+  * Waifu\water\config\negative.yaml 存放负面分词
+  * Waifu\water\config\meaningless.yaml 存放无意义的字
     * 为了减少正负分词维护工作量，匹配时会从正负分词中将“无意义的字”先删除，然后再进行匹配，例如：好吧 -> 好。
-  * Waifu\water\files\unrecognized_words.yaml 用于记录未识别的分词
-  * Waifu\water\files\tidy.py 整理脚本，文件可自行维护，维护后建议运行 python tidy.py 整理正负分词，脚本将执行：排序、单文件去重、正负文件去重（负文件优先级高）
+  * Waifu\water\config\unrecognized_words.yaml 用于记录未识别的分词
+  * Waifu\water\config\tidy.py 整理脚本，文件可自行维护，维护后建议运行 python tidy.py 整理正负分词，脚本将执行：排序、单文件去重、正负文件去重（负文件优先级高）
 * 修改 私聊模式默认人设（参考 [小黄蕉](https://chatwiz.cn/h5/feely) 苏苏）。
 * 修改 剧情模式可开启拟人化。
 * 修改 取消删除记忆时会删除默认配置文件。 
@@ -127,6 +127,8 @@
 ✅ 角色模块 cards.py：Waifu的人物预设识别模块，采用LangGPT格式。
 
 ✅ 配置模块 config.py：实现yaml格式的配置加载及写入。
+
+✅ 文字分析模块 text_analyzer.py：通过TexSmart API分词功能实现情感识别、生成TAGS。
 
 #### 基础模块 Organs
 

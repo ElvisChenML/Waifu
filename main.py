@@ -272,7 +272,7 @@ class Waifu(BasePlugin):
                 os.makedirs(directory)
                 self.ap.logger.info(f"Directory created: {directory}")
 
-        files = ["jail_break_before.txt", "jail_break_after.txt"]
+        files = ["jail_break_before.txt", "jail_break_after.txt", "tidy.py"]
         for file in files:
             file_path = f"plugins/Waifu/water/config/{file}"
             template_path = f"plugins/Waifu/water/templates/{file}"
@@ -478,7 +478,7 @@ class Waifu(BasePlugin):
 
     async def _send_personate_reply(self, ctx: EventContext, response: str):
         launcher_id = ctx.event.launcher_id
-        parts = re.split(r"([，。？！,.?!\n])", response)  # 保留分隔符
+        parts = re.split(r"([，。？！,.?!\n~])", response)  # 保留分隔符
         combined_parts = []
         temp_part = ""
 
@@ -488,7 +488,7 @@ class Waifu(BasePlugin):
                 continue
             if part in ["，", "。", ",", ".", "\n"]:  # 跳过标点符号
                 continue
-            elif part in ["？", "！", "?", "!"]:  # 保留？和！
+            elif part in ["？", "！", "?", "!", "~"]:  # 保留？、！、~
                 if combined_parts:
                     combined_parts[-1] += part
                 else:
@@ -542,18 +542,8 @@ class Waifu(BasePlugin):
         translation_table = str.maketrans({",": "，", ".": "。", "?": "？", "!": "！", ":": "：", ";": "；", "(": "（", ")": "）", "\n": " "})
         return text.translate(translation_table)
 
-    def _remove_surrounding_quotes(self, text: str) -> str:
-        # 定义匹配中英文单双引号的正则表达式
-        pattern = r"^(['\"“”‘’]).*(['\"“”‘’])$"
-        # 检查字符串是否仅头尾有引号
-        match = re.match(pattern, text)
-        if match and text[1:-1].count(match.group(1)) == 0 and text[1:-1].count(match.group(2)) == 0:
-            return text[1:-1]
-        return text
-
     async def _reply(self, ctx: EventContext, response: str):
         response_fixed = self._replace_english_punctuation(response).strip()
-        response_fixed = self._remove_surrounding_quotes(response_fixed)
         await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, MessageChain([f"{response_fixed}"]), False)
 
     def _set_jail_break(self, launcher_id: str, jail_break: str, type: str):

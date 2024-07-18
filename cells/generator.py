@@ -164,9 +164,19 @@ class Generator:
     def clean_response(self, response: str) -> str:
         # 使用正则表达式去掉冒号前的内容，包括冒号和可能存在的空格（避免模型回复成 苏苏：!@#!@#$）
         cleaned_response = re.sub(r"^[^:：]*[:：]\s*", "", response)
+        cleaned_response = self._remove_surrounding_quotes(cleaned_response)
         # 删除特定字符串
         cleaned_response = cleaned_response.replace("<结束无效提示>", "")
         return cleaned_response
+
+    def _remove_surrounding_quotes(self, text: str) -> str:
+        # 定义匹配中英文单双引号的正则表达式
+        pattern = r"^(['\"“”‘’]).*(['\"“”‘’])$"
+        # 检查字符串是否仅头尾有引号
+        match = re.match(pattern, text)
+        if match and text[1:-1].count(match.group(1)) == 0 and text[1:-1].count(match.group(2)) == 0:
+            return text[1:-1]
+        return text
 
     def _parse_json_list(self, response: str, generate_tags: bool = False) -> list:
         try:

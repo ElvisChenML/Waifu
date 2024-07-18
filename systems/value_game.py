@@ -48,7 +48,7 @@ class ValueGame:
         last_content = memory.get_last_content(conversations)
 
         # self.ap.logger.info(f"情绪分析: {last_content}")
-        sentiment_result = self._text_analyzer.sentiment(text=last_content)
+        sentiment_result = await self._text_analyzer.sentiment(text=last_content)
         positive_emotions = sentiment_result.get("positive_num", 0)
         negative_emotions = sentiment_result.get("negative_num", 0)
 

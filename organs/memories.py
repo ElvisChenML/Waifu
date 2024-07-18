@@ -70,7 +70,7 @@ class Memory:
             memory = self.get_last_content(conversations, 5)
 
         # 使用TexSmart HTTP API生成词频统计并获取i18n信息和related信息
-        term_freq_counter, i18n_list, related_list = self._text_analyzer.term_freq(memory)
+        term_freq_counter, i18n_list, related_list = await self._text_analyzer.term_freq(memory)
 
         # 从词频统计中提取前N个高频词及其i18n标签作为标签
         top_n = self._summary_max_tags - len(i18n_list)

@@ -6,6 +6,7 @@ import os
 from collections import Counter
 from typing import Tuple, List, Dict, Any
 from pkg.plugin.context import APIHost
+from plugins.Waifu.cells.config import ConfigManager
 
 
 class TextAnalyzer:
@@ -15,27 +16,21 @@ class TextAnalyzer:
         self.host = host
         self.ap = host.ap
 
-    def _load_yaml_dict(self, file: str, is_builtin: bool = True) -> dict:
+    async def _load_yaml_dict(self, file: str) -> Dict[str, list]:
         """
         Load yaml dictionary file.
         :param file: yaml file path
-        :param is_builtin: Whether it is the built-in yaml file of cntext. Default True
         """
         # 如果字典已经加载过，则直接返回
         if file in TextAnalyzer.LOADED_DICTIONARIES:
             return TextAnalyzer.LOADED_DICTIONARIES[file]
 
-        if is_builtin:
-            dict_file_path = f"plugins/Waifu/water/files/{file}"
-        else:
-            dict_file_path = file
-
-        with open(dict_file_path, "r", encoding="utf-8") as dict_f:
-            dict_obj = yaml.safe_load(dict_f)
+        config = ConfigManager(f"plugins/Waifu/water/config/{file}", f"plugins/Waifu/water/templates/{file}")
+        await config.load_config(completion=False)
 
         # 将加载的字典数据存入全局变量
-        TextAnalyzer.LOADED_DICTIONARIES[file] = dict_obj
-        return dict_obj
+        TextAnalyzer.LOADED_DICTIONARIES[file] = config.data
+        return config.data
 
     def _call_texsmart_api(self, text: str) -> Dict[str, Any]:
         url = "https://texsmart.qq.com/api"
@@ -60,12 +55,12 @@ class TextAnalyzer:
 
         return parsed_data
 
-    def term_freq(self, text: str) -> Tuple[Counter, List[str], List[str]]:
+    async def term_freq(self, text: str) -> Tuple[Counter, List[str], List[str]]:
         """
         Calculate word count and retrieve i18n information.
         :param text: text string
         """
-        text = self._remove_meaningless(text)
+        text = await self._remove_meaningless(text)
         print("Texsmart Tags")
         words = []
         i18n_list = []
@@ -95,16 +90,18 @@ class TextAnalyzer:
         term_freq_counter = Counter(words)
         return term_freq_counter, i18n_list, related_list
 
-    def sentiment(self, text: str) -> Dict[str, Any]:
+    async def sentiment(self, text: str) -> Dict[str, Any]:
         """
         Calculate the occurrences of each sentiment category words in text.
         :param text: text string
         """
-        text = self._remove_meaningless(text)
+        text = await self._remove_meaningless(text)
         result_dict = {"positive_num": 0, "negative_num": 0}
 
-        positive_list = self._load_yaml_dict("positive.yaml").get("positive", [])
-        negative_list = self._load_yaml_dict("negative.yaml").get("negative", [])
+        positive_dict = await self._load_yaml_dict("positive")
+        positive_list = positive_dict.get("positive", [])
+        negative_dict = await self._load_yaml_dict("negative")
+        negative_list = negative_dict.get("negative", [])
 
         response = self._call_texsmart_api(text)
         parsed_data = self._parse_texsmart_response(response)
@@ -152,7 +149,7 @@ class TextAnalyzer:
         :param filename: The name of the file to save the words in
         """
         existing_words = []
-        dict_file_path = f"plugins/Waifu/water/files/unrecognized_words.yaml"
+        dict_file_path = f"plugins/Waifu/water/config/unrecognized_words.yaml"
 
         if os.path.exists(dict_file_path):
             with open(dict_file_path, "r", encoding="utf-8") as f:
@@ -166,12 +163,13 @@ class TextAnalyzer:
         with open(dict_file_path, "w", encoding="utf-8") as f:
             yaml.dump({"unrecognized": combined_words}, f, allow_unicode=True)
 
-    def _remove_meaningless(self, text: str) -> str:
+    async def _remove_meaningless(self, text: str) -> str:
         """
         Remove meaningless words and punctuation from the text.
         :param text: input text
         """
-        meaningless = self._load_yaml_dict("meaningless.yaml")["meaningless"]
+        meaningless_dict = await self._load_yaml_dict("meaningless")
+        meaningless = meaningless_dict.get("meaningless", [])
 
         for word in meaningless:
             text = text.replace(word, "")
