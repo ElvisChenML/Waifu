@@ -26,6 +26,7 @@ COMMANDS = {
     "态度": "显示当前Value Game所对应的“态度Manner”，用法：[态度]。",
     "加载配置": "重新加载所有配置文件（仅Waifu），用法：[加载配置]。",
     "停止活动": "停止旁白计时器，用法：[停止活动]。",
+    "开场白": "主动触发旁白输出角色卡中的“开场白Prologue”，用法：[开场白]。",
     "旁白": "主动触发旁白推进剧情，用法：[旁白]。",
     "继续": "主动触发Bot继续回复推进剧情，用法：[继续]。",
     "控制人物": "控制角色发言（行动）或触发AI生成角色消息，用法：[控制人物][角色名称/assistant]|[发言(行动)/继续]。",
@@ -50,6 +51,7 @@ class Waifu(BasePlugin):
         self._value_game: typing.Dict[str, ValueGame] = {}
         self._cards: typing.Dict[str, Cards] = {}
         self._thoughts: typing.Dict[str, Thoughts] = {}
+        self._thinking_mode_flag: typing.Dict[str, bool] = {}
         self._story_mode_flag: typing.Dict[str, bool] = {}
         self._display_thinking: typing.Dict[str, bool] = {}
         self._display_value: typing.Dict[str, bool] = {}
@@ -125,6 +127,7 @@ class Waifu(BasePlugin):
             character = f"default_{launcher_type}"
         self._launcher_intervals[launcher_id] = waifu_config.data.get("intervals", [])
         self._story_mode_flag[launcher_id] = waifu_config.data.get("story_mode", True)
+        self._thinking_mode_flag[launcher_id] = waifu_config.data.get("thinking_mode", True)
         self._display_thinking[launcher_id] = waifu_config.data.get("display_thinking", True)
         self._display_value[launcher_id] = waifu_config.data.get("display_value", False)
         self._response_rate[launcher_id] = waifu_config.data.get("response_rate", 0.7)
@@ -204,11 +207,15 @@ class Waifu(BasePlugin):
             response = "配置已重载"
         elif msg == "停止活动":
             response = self._stop_timer(launcher_id)
+        elif msg == "开场白":
+            response = self._cards[launcher_id].get_prologue()
+            ctx.event.query.message_chain = MessageChain([f"控制人物narrator|{response}"])
+            need_assistant_reply, need_save_memory = await self._handle_command(ctx)
         elif msg == "旁白":
             await self._narrate(ctx, launcher_id)
         elif msg == "继续":
             await self._continue_person_reply(ctx)
-        elif launcher_type != "group" and msg.startswith("控制人物"):
+        elif msg.startswith("控制人物"):
             content = msg[4:].strip()
             parts = content.split("|")
             if len(parts) == 2:
@@ -220,6 +227,7 @@ class Waifu(BasePlugin):
                     cards = self._cards[launcher_id]
                     user_prompt = await self._thoughts[launcher_id].generate_character_prompt(memory, cards, role)
                     if user_prompt:  # 自动生成角色发言
+                        self._generator.set_speakers([role])
                         prompt = await self._generator.return_chat(user_prompt)
                         response = f"{role}：{prompt}"
                         await memory.save_memory(role=role, content=prompt)
@@ -229,16 +237,15 @@ class Waifu(BasePlugin):
                 else:  # 人工指定角色发言
                     await memory.save_memory(role=role, content=prompt)
                     need_assistant_reply = True
-        elif launcher_type != "group" and msg.startswith("推进剧情"):
+        elif msg.startswith("推进剧情"):
             role = msg[4:].strip()
             if not role:  # 若不指定哪个角色推进剧情，默认为user
                 role = "user"
             ctx.event.query.message_chain = MessageChain(["旁白"])
-            await self._handle_command(ctx)
+            need_assistant_reply, need_save_memory = await self._handle_command(ctx) # 此时不会触发assistant回复
             ctx.event.query.message_chain = MessageChain([f"控制人物{role}|继续"])
-            await self._handle_command(ctx)
-            need_assistant_reply = True
-        elif launcher_type != "group" and msg.startswith("功能测试"):
+            need_assistant_reply, need_save_memory = await self._handle_command(ctx)
+        elif msg.startswith("功能测试"):
             # 隐藏指令，功能测试会清空记忆，请谨慎执行。
             await self._test(ctx)
         elif msg == "撤回":
@@ -332,9 +339,12 @@ class Waifu(BasePlugin):
             # 备份然后重置避免回复过程中接收到新讯息导致计数错误
             unreplied_count = self._unreplied_count[launcher_id]
             self._unreplied_count[launcher_id] = 0
-            user_prompt, analysis = await thoughts.generate_group_prompt(memory, cards, unreplied_count)
-            if self._display_thinking[launcher_id]:
-                await self._reply(ctx, f"【分析】：{analysis}")
+            user_prompt = memory.short_term_memory  # 默认为当前short_term_memory_size条聊天记录
+            if self._thinking_mode_flag[launcher_id]:
+                user_prompt, analysis = await thoughts.generate_group_prompt(memory, cards, unreplied_count)
+                if self._display_thinking[launcher_id]:
+                    await self._reply(ctx, f"【分析】：{analysis}")
+            self._generator.set_speakers([memory.assistant_name])
             response = await self._generator.return_chat(user_prompt, system_prompt)
             await memory.save_memory(role="assistant", content=response)
 
@@ -376,8 +386,6 @@ class Waifu(BasePlugin):
         self.ap.logger.info(f"generating person {launcher_id} response")
         memory = self._memory[launcher_id]
         cards = self._cards[launcher_id]
-        thoughts = self._thoughts[launcher_id]
-        _, unreplied_conversations = memory.get_unreplied_msg(self._unreplied_count[launcher_id])
 
         try:
             self._unreplied_count[launcher_id] = 0
@@ -386,19 +394,23 @@ class Waifu(BasePlugin):
                 manner = value_game.get_manner_description()
                 cards.set_manner(manner)
             if self._summarization_mode[launcher_id]:
+                _, unreplied_conversations = memory.get_unreplied_msg(self._unreplied_count[launcher_id])
                 related_memories = await memory.load_memory(unreplied_conversations)
                 cards.set_memory(related_memories)
 
             # user_prompt不直接从msg生成，而是先将msg保存至短期记忆，再由短期记忆生成。
             # 好处是不论旁白或是控制人物，都能直接调用记忆生成回复
-            user_prompt, analysis = await thoughts.generate_person_prompt(memory, cards)
-            if self._display_thinking[launcher_id]:
-                await self._reply(ctx, f"【分析】：{analysis}")
+            user_prompt = memory.short_term_memory  # 默认为当前short_term_memory_size条聊天记录
+            if self._thinking_mode_flag[launcher_id]:
+                thoughts = self._thoughts[launcher_id]
+                user_prompt, analysis = await thoughts.generate_person_prompt(memory, cards)
+                if self._display_thinking[launcher_id]:
+                    await self._reply(ctx, f"【分析】：{analysis}")
             await self._send_person_reply(ctx, user_prompt)  # 生成回复并发送
 
             if self._story_mode_flag[launcher_id]:
                 value_game = self._value_game[launcher_id]
-                await value_game.determine_manner_change(self._memory[launcher_id], self._continued_count[launcher_id])
+                await value_game.determine_manner_change(memory, self._continued_count[launcher_id])
                 if self._display_value[launcher_id]:  # 是否开启数值显示
                     response = value_game.get_manner_value_str()
                     if response:
@@ -414,12 +426,14 @@ class Waifu(BasePlugin):
         finally:
             self._response_timers_flag[launcher_id] = False
 
-    async def _send_person_reply(self, ctx: EventContext, user_prompt: str):
+    async def _send_person_reply(self, ctx: EventContext, user_prompt: str | list[llm_entities.ContentElement]):
         launcher_id = ctx.event.launcher_id
         cards = self._cards[launcher_id]
+        memory = self._memory[launcher_id]
         system_prompt = cards.generate_system_prompt()
+        self._generator.set_speakers([memory.assistant_name])
         response = await self._generator.return_chat(user_prompt, system_prompt)
-        await self._memory[launcher_id].save_memory(role="assistant", content=response)
+        await memory.save_memory(role="assistant", content=response)
 
         if self._personate_mode[launcher_id]:
             await self._send_personate_reply(ctx, response)
@@ -539,11 +553,17 @@ class Waifu(BasePlugin):
             return await self._thoughts[ctx.event.launcher_id].analyze_picture(content_list)
 
     def _replace_english_punctuation(self, text: str) -> str:
-        translation_table = str.maketrans({",": "，", ".": "。", "?": "？", "!": "！", ":": "：", ";": "；", "(": "（", ")": "）", "\n": " "})
-        return text.translate(translation_table)
+        translation_table = str.maketrans({",": "，", ".": "。", "?": "？", "!": "！", ":": "：", ";": "；", "(": "（", ")": "）"})
+        return text.translate(translation_table).strip()
+
+    def _remove_blank_lines(self, text: str) -> str:
+        lines = text.split("\n")
+        non_blank_lines = [line for line in lines if line.strip() != ""]
+        return "\n".join(non_blank_lines)
 
     async def _reply(self, ctx: EventContext, response: str):
-        response_fixed = self._replace_english_punctuation(response).strip()
+        response_fixed = self._replace_english_punctuation(response)
+        response_fixed = self._remove_blank_lines(response)
         await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, MessageChain([f"{response_fixed}"]), False)
 
     def _set_jail_break(self, launcher_id: str, jail_break: str, type: str):
@@ -595,7 +615,7 @@ class Waifu(BasePlugin):
         if len(parts) == 2:
             note = parts[0].strip()
             cmd = parts[1].strip()
-        await self._reply(ctx, f"------ 【{note}】模拟发送：{cmd} ------ ")
+        await self._reply(ctx, f"【模拟发送】（{note}）\n{cmd}")
         ctx.event.query.message_chain = MessageChain([cmd])
         need_assistant_reply, need_save_memory = await self._handle_command(ctx)
         if need_assistant_reply:

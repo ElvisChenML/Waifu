@@ -42,6 +42,7 @@ class Narrator:
         if restrictions:
             user_prompt += f"确保没有违反{memory.assistant_name}的续写限制。"
         user_prompt += f"""不可以描述过去对话内容，不可以在续写中替“{"、".join(speakers)}”发言。不可以输出是否在同一个场景的判断结果，只提供一个100字以内的身体动作描述。确保续写仅描述身体动作，不需要描述其他内容。"""
+        self._generator.set_speakers(speakers)
         self._action = await self._generator.return_string(user_prompt)
         return self._action
 

@@ -20,6 +20,8 @@ class Cards:
         self._memories = []
         self._speaking = []
         self._restrictions = []
+        self._prologue = ""
+        self._additional_keys = {}
 
     async def load_config(self, character: str, launcher_type: str):
         config = ConfigManager(f"plugins/Waifu/water/cards/{character}", f"plugins/Waifu/water/templates/default_{launcher_type}")
@@ -36,6 +38,11 @@ class Cards:
         self._rules = config.data.get("Rules", [])
         self._speaking = config.data.get("Speaking", [])
         self._restrictions = config.data.get("Restrictions", [])
+        self._prologue = config.data.get("Prologue", "")
+
+        # Collect additional keys
+        predefined_keys = {"user_name", "assistant_name", "language", "Profile", "Skills", "Background", "Rules", "Speaking", "Restrictions", "Prologue"}
+        self._additional_keys = {key: value for key, value in config.data.items() if key not in predefined_keys}
 
     def set_memory(self, memories: typing.List[str]):
         self._memories = memories
@@ -55,6 +62,9 @@ class Cards:
     def get_manner(self) -> str:
         return self._manner
 
+    def get_prologue(self) -> str:
+        return self._list_to_prompt_str(self._prologue, link="\n")
+
     def get_rules(self) -> str:
         init_parts = []
         if self._rules:
@@ -73,7 +83,7 @@ class Cards:
         return self._assemble_prompt(sections)
 
     def _collect_prompt_sections(self) -> typing.List[typing.Tuple[str, typing.Any]]:
-        return [
+        sections = [
             ("Profile", self._profile),
             ("Speaking Style", self._speaking),
             ("Skills", self._skills),
@@ -82,6 +92,10 @@ class Cards:
             ("Restrictions", self._restrictions),
             ("Rules", self.get_rules()),
         ]
+        # Add additional keys to sections
+        for key, value in self._additional_keys.items():
+            sections.append((key, value))
+        return sections
 
     def _assemble_prompt(self, sections: typing.List[typing.Tuple[str, typing.Any]]) -> str:
         prompt_parts = []
@@ -90,16 +104,21 @@ class Cards:
                 prompt_parts.append(f"{title}\n{self._list_to_prompt_str(content_list)}\n")
         return "".join(prompt_parts)
 
-    def _ensure_punctuation(self, text: str) -> str:
-        # 定义中英文标点符号
-        punctuation = r"[。.，,？?；;]"
-        # 如果末尾没有标点符号，则添加一个句号
-        if not re.search(punctuation + r"$", text):
-            return text + "。"
-        return text
-
-    def _list_to_prompt_str(self, content: list | str, prefix: str = "") -> str:
-        if isinstance(content, list):
-            return "".join([prefix + self._ensure_punctuation(item) for item in content])
+    def _ensure_punctuation(self, text: str | None) -> str:
+        if isinstance(text, str):
+            # 定义中英文标点符号
+            punctuation = r"[。.，,？?；;]"
+            # 如果末尾没有标点符号，则添加一个句号
+            if not re.search(punctuation + r"$", text):
+                return text + "。"
+            return text
         else:
+            return ""
+
+    def _list_to_prompt_str(self, content: list | str | None, prefix: str = "", link: str = "") -> str:
+        if isinstance(content, list):
+            return link.join([prefix + self._ensure_punctuation(item) for item in content if isinstance(item, str)])
+        elif isinstance(content, str):
             return self._ensure_punctuation(content)
+        else:
+            return ""

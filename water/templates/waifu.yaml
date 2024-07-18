@@ -2,12 +2,12 @@
 character: "default" # 使用water/cards中的预设名称，使用默认值“default”时会使用模板Water/config/default_*.yaml创建water/cards/default_*.yaml。
 summarization_mode: true # 是否开启长期记忆，不开启则超出short_term_memory_size直接截断。
 story_mode: true # 是否开启剧情模式（旁白、状态栏），仅私聊模式生效。
-display_thinking: false # 是否显示内心活动。
-display_value: false # 是否每次回复后显示数值；若关闭，请通过命令[态度]查看。
+thinking_mode: true # 是否开启思维链。
 personate_mode: true # 是否启用拟人化：打字时间、分段回复。
 jail_break_mode: "off" # off/before/after；是否启用破甲，off：关闭破甲，before：系统提示前加入破甲提示，after：系统提示后加入破甲提示；破甲内容请修改：jail_break_before.txt、jail_break_after.txt。
 
 # 思考模块
+display_thinking: false # 是否显示内心活动。
 analyze_max_conversations: 9 # 用于生成分析的最大对话数量。
 
 # 记忆模块
@@ -25,6 +25,7 @@ group_response_delay: 3 # 群聊消息合并等待时间。
 bracket_rate: [0.1, 0.1] # 回复末尾加括号的机率，第一个对应加（）的机率，第二个对应加（的机率。
 
 # 私聊剧情模式
+display_value: false # 是否每次回复后显示数值；若关闭，请通过命令[态度]查看。
 narrat_max_conversations: 8 # 用于生成旁白的最大对话数量。
 value_game_max_conversations: 5 # 判定数值变化时输入的最大对话数量。
 intervals: [300, 600, 1800, 3600] # 列表，自动触发旁白推进剧情的时间间隔，单位秒，默认为[300,600,1800,3600]，即：第一次5分钟、第二次10分钟、第三次30分钟、第四次一个小时，然后停止计时器。

@@ -30,6 +30,7 @@ class Generator:
         self.ap = host.ap
         self._jail_break = ""
         self._jail_break_type = ""
+        self._speakers = []
 
     def _get_question_prompts(self, user_prompt: str, output_format: str = "JSON list", system_prompt: str = None) -> typing.List[llm_entities.Message]:
         messages = []
@@ -49,7 +50,7 @@ class Generator:
         messages.append(llm_entities.Message(role="user", content=task_json.strip()))
         return self._save_token(messages)
 
-    def _get_chat_prompts(self, user_prompt: str, system_prompt: str = None) -> typing.List[llm_entities.Message]:
+    def _get_chat_prompts(self, user_prompt: str | list[llm_entities.ContentElement], system_prompt: str = None) -> typing.List[llm_entities.Message]:
         messages = []
         if self._jail_break and self._jail_break_type == "before":
             messages.append(llm_entities.Message(role="system", content=self._jail_break))
@@ -57,7 +58,11 @@ class Generator:
             messages.append(llm_entities.Message(role="system", content=system_prompt))
         if self._jail_break and self._jail_break_type == "after":
             messages.append(llm_entities.Message(role="system", content=self._jail_break))
-        messages.append(llm_entities.Message(role="user", content=user_prompt))
+        if isinstance(user_prompt, list):
+            messages.extend(user_prompt)
+        else:
+            messages.append(llm_entities.Message(role="user", content=user_prompt))
+
         return self._save_token(messages)
 
     def _get_image_prompts(self, content_list: list[llm_entities.ContentElement], system_prompt: str = None) -> typing.List[llm_entities.Message]:
@@ -149,7 +154,7 @@ class Generator:
         return cleaned_response
 
     @handle_errors
-    async def return_chat(self, request: str, system_prompt: str = None) -> str:
+    async def return_chat(self, request: str | list[llm_entities.ContentElement], system_prompt: str = None) -> str:
         model_info = await self.ap.model_mgr.get_model_by_name(self.ap.provider_cfg.data["model"])
         messages = self._get_chat_prompts(request, system_prompt)
 
@@ -162,11 +167,17 @@ class Generator:
         return cleaned_response
 
     def clean_response(self, response: str) -> str:
-        # 使用正则表达式去掉冒号前的内容，包括冒号和可能存在的空格（避免模型回复成 苏苏：!@#!@#$）
-        cleaned_response = re.sub(r"^[^:：]*[:：]\s*", "", response)
+        if self._speakers:
+            # 使用正则去掉self._speakers中的任何名称，后跟冒号或中文冒号及其后的空格
+            speakers_pattern = "|".join([re.escape(speaker) for speaker in self._speakers])
+            pattern = rf"^(?:{speakers_pattern})[:：]\s*"
+            cleaned_response = re.sub(pattern, "", response)
+        else:
+            cleaned_response = response
         cleaned_response = self._remove_surrounding_quotes(cleaned_response)
-        # 删除特定字符串
+        # 删除特定破甲字符串
         cleaned_response = cleaned_response.replace("<结束无效提示>", "")
+
         return cleaned_response
 
     def _remove_surrounding_quotes(self, text: str) -> str:
@@ -262,3 +273,6 @@ class Generator:
     def set_jail_break(self, jail_break: str, type: str):
         self._jail_break = jail_break
         self._jail_break_type = type
+
+    def set_speakers(self, speakers: list):
+        self._speakers = speakers

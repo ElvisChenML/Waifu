@@ -29,6 +29,7 @@ class Thoughts:
             user_prompt += f"确保心理活动符合行为准则。"
         time = self._generator.get_chinese_current_time()
         user_prompt += f"""确保分析是站在{memory.assistant_name}的角度思考。确保心理活动简明扼要，意图明确。确保心理活动考虑到当前时间是{time}，并且应符合{memory.assistant_name}的角色设定。确保回复的是关于{last_speaker}的心理活动，而不是要对{last_speaker}说的话。只提供50字以内的心理活动，不需要其他说明。"""
+        self._generator.set_speakers(speakers)
         analysis_result = await self._generator.return_string(user_prompt)
         return analysis_result
 
@@ -98,6 +99,7 @@ class Thoughts:
         user_prompt += f"确保考虑到上下文，并依据{memory.assistant_name}的性格特点和当前情境进行心理分析，充分体现{memory.assistant_name}的性格特征和情感反应。"
         user_prompt += f"""消息格式为群友昵称说：“”。作为{memory.assistant_name}描述自己的心理活动。确保心理活动符合{memory.assistant_name}的角色设定。确保心理活动简明扼要，意图明确。只提供50字以内的心理活动，不需要其他说明。"""
 
+        self._generator.set_speakers([memory.assistant_name])
         analysis_result = await self._generator.return_string(user_prompt)
         return analysis_result
 

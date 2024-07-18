@@ -36,9 +36,10 @@ class Memory:
         self._conversations_file = f"plugins/Waifu/water/data/conversations_{launcher_id}.log"
         self._short_term_memory_file = f"plugins/Waifu/water/data/short_term_memory_{launcher_id}.json"
         self._summarization_mode = False
+        self._status_file = ""
+        self._thinking_mode_flag = True
         self._load_long_term_memory_from_file()
         self._load_short_term_memory_from_file()
-        self._status_file = ""
 
     async def load_config(self, character: str, launcher_id: str, launcher_type: str):
         self._status_file = f"plugins/Waifu/water/data/{character}_{launcher_id}.json"
@@ -46,6 +47,7 @@ class Memory:
         waifu_config = ConfigManager(f"plugins/Waifu/water/config/waifu", "plugins/Waifu/water/templates/waifu", launcher_id)
         await waifu_config.load_config(completion=True)
 
+        self._thinking_mode_flag = waifu_config.data.get("thinking_mode", True)
         self._short_term_memory_size = waifu_config.data["short_term_memory_size"]
         self._memory_batch_size = waifu_config.data["memory_batch_size"]
         self._retrieve_top_n = waifu_config.data["retrieve_top_n"]
@@ -152,8 +154,12 @@ class Memory:
 
     async def save_memory(self, role: str, content: str):
         time = self._generator.get_chinese_current_time()
-        content_with_time = f"[{time}]{content}"
-        conversation = llm_entities.Message(role=role, content=content_with_time)
+        support_list = ["assistant", "user", "system", "tool", "command", "plugin"]
+        if self._thinking_mode_flag:
+            content = f"[{time}]{content}" # 思维链模式会加上时间概念
+        elif role not in support_list:
+            role = "user"  # 非思维链模式不支援特殊role
+        conversation = llm_entities.Message(role=role, content=content)
         self.short_term_memory.append(conversation)
         self._save_short_term_memory_to_file()
         self._save_conversations_to_file([conversation])
@@ -245,7 +251,11 @@ class Memory:
                     return
 
                 data = json.loads(file_content)
-                self.short_term_memory = [llm_entities.Message(role=item["role"], content=item["content"]) for item in data]
+                support_list = ["assistant", "user", "system", "tool", "command", "plugin"]
+                for item in data:
+                    if not self._thinking_mode_flag and item["role"] not in support_list:
+                        item["role"] = "user"  # 非思维链模式不支援特殊role
+                    self.short_term_memory.append(llm_entities.Message(role=item["role"], content=item["content"]))
         except FileNotFoundError:
             self.ap.logger.warning(f"Cache file '{self._short_term_memory_file}' not found. Starting with empty memory.")
         except json.JSONDecodeError as e:
