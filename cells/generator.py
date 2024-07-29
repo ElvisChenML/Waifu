@@ -182,11 +182,25 @@ class Generator:
 
     def _remove_surrounding_quotes(self, text: str) -> str:
         # 定义匹配中英文单双引号的正则表达式
-        pattern = r"^(['\"“”‘’]).*(['\"“”‘’])$"
+        pattern = r"^([\"“‘'])?(.*?)([\"”’'])?$"
         # 检查字符串是否仅头尾有引号
         match = re.match(pattern, text)
-        if match and text[1:-1].count(match.group(1)) == 0 and text[1:-1].count(match.group(2)) == 0:
-            return text[1:-1]
+        if match:
+            start_quote, content, end_quote = match.groups()
+            if start_quote and end_quote:
+                # 确保头尾引号匹配，并且中间内容不包含未配对的头尾引号
+                if start_quote in ('"', "“", "‘") and end_quote in ('"', "”", "’") and content.count(start_quote) == content.count(end_quote):
+                    return content
+                elif start_quote in ("'", "‘", "’") and end_quote in ("'", "’", "‘") and content.count(start_quote) == content.count(end_quote):
+                    return content
+            elif start_quote:
+                # 如果只有起始引号而没有结束引号
+                if content.count(start_quote) == 0:
+                    return content
+            elif end_quote:
+                # 如果只有结束引号而没有起始引号
+                if content.count(end_quote) == 0:
+                    return content
         return text
 
     def _parse_json_list(self, response: str, generate_tags: bool = False) -> list:

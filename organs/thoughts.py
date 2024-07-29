@@ -19,37 +19,34 @@ class Thoughts:
         last_role = memory.get_last_role(conversations)
         last_content = memory.get_last_content(conversations)
         last_speaker = memory.get_last_speaker(conversations)
-        user_prompt = f"这是之前记录：“{conversations_str}”。这是{memory.assistant_name}的角色设定“{profile}{background}”。这是你对待用户的行为准则“{manner}”。"
+        user_prompt = f"这是之前记录：“{conversations_str}”。这是{memory.assistant_name}的角色设定“{profile}{background}”。这是你的行为准则“{manner}”。"
         if last_role == "narrator":
             user_prompt += f"""分析之前记录中“{last_content}”里“{"、".join(speakers)}”之间的行为及事件。"""
         else:
-            user_prompt += f"分析之前记录中{memory.assistant_name}听到{last_speaker}说“{last_content}”后关于{last_speaker}的心理活动。"
-        user_prompt += f"确保考虑到上下文，并依据{memory.assistant_name}的性格特点和当前情境进行心理分析，充分体现{memory.assistant_name}的性格特征和情感反应。"
-        if manner:
-            user_prompt += f"确保心理活动符合行为准则。"
+            user_prompt += f"分析之前记录中{last_speaker}对{memory.assistant_name}说“{last_content}”的意图。"
         time = self._generator.get_chinese_current_time()
-        user_prompt += f"""确保分析是站在{memory.assistant_name}的角度思考。确保心理活动简明扼要，意图明确。确保心理活动考虑到当前时间是{time}，并且应符合{memory.assistant_name}的角色设定。确保回复的是关于{last_speaker}的心理活动，而不是要对{last_speaker}说的话。只提供50字以内的心理活动，不需要其他说明。"""
+        user_prompt += f"""确保分析是站在{memory.assistant_name}的角度思考。确保分析简明扼要，意图明确。确保分析考虑到当前时间是{time}，并且应符合{memory.assistant_name}的角色设定。只提供{memory.max_thinking_words}字以内的分析结果，不需要其他说明。"""
         self._generator.set_speakers(speakers)
         analysis_result = await self._generator.return_string(user_prompt)
         return analysis_result
 
     async def generate_person_prompt(self, memory: Memory, card: Cards) -> typing.Tuple[str, str]:
         conversations = memory.short_term_memory
-        profile = card.get_profile()
-        background = card.get_background()
-        manner = card.get_manner()
+        profile = memory.to_custom_names(card.get_profile())
+        background = memory.to_custom_names(card.get_background())
+        manner = memory.to_custom_names(card.get_manner())
         analysis = await self._analyze_person_conversations(memory, profile, background, manner)
         _, conversations_str = memory.get_conversations_str_for_person(conversations)
-        user_prompt = f"这是之前记录：“{conversations_str}”。你此时的心理活动“{analysis}”。"
+        user_prompt = f"这是之前记录：“{conversations_str}”。"
 
         last_speaker = memory.get_last_speaker(conversations)
         last_role = memory.get_last_role(conversations)
         last_content = memory.get_last_content(conversations)
 
         if last_role == "narrator":
-            user_prompt += f"你要作为{memory.assistant_name}根据最后发生的事情“{last_content}”对{last_speaker}做出符合{memory.assistant_name}角色设定的回复。"
+            user_prompt += f"你要作为{memory.assistant_name}根据最后发生的事情“{last_content}”参考分析结果“{analysis}”对{last_speaker}做出符合{memory.assistant_name}角色设定的回复。"
         else:
-            user_prompt += f"你要作为{memory.assistant_name}对{last_speaker}依据心理活动做出符合{memory.assistant_name}角色设定的回复。"
+            user_prompt += f"你要作为{memory.assistant_name}参考分析结果“{analysis}”对{last_speaker}做出符合{memory.assistant_name}角色设定的回复。"
         time = self._generator.get_chinese_current_time()
         user_prompt += f"确保回复时考虑到当前时间是{time}，并且应符合{memory.assistant_name}的角色设定。确保回复充分体现{memory.assistant_name}的性格特征和情感反应。"
         user_prompt += f"只提供{memory.assistant_name}的回复内容，不需要其他说明。"
@@ -60,8 +57,8 @@ class Thoughts:
         unsupport_list = [f"{memory.assistant_name.lower()}", "assistant", "旁白", "narrator"]
         if character.lower() in unsupport_list:
             return ""
-        profile = card.get_profile() + card.get_background() + card.get_manner()
-        profile = memory.to_custom_names(profile)
+        profile = memory.to_custom_names(card.get_profile() + card.get_background() + card.get_manner())
+        # 其他角色的人称需要额外处理
         profile = profile.replace("你", memory.assistant_name)
         profile = profile.replace("我", memory.user_name)
 
@@ -85,7 +82,7 @@ class Thoughts:
         _, conversations_str = memory.get_conversations_str_for_person(conversations)
         last_speaker = memory.get_last_speaker(conversations)
         last_content = memory.get_last_content(conversations)
-        user_prompt = f"这是之前记录：“{conversations_str}”。你要作为{memory.assistant_name}在对{last_speaker}说完“{last_content}”后继续对{last_speaker}做出符合{memory.assistant_name}角色设定的回复。回复应与上下文自然的衔接（地点、物理动作、状态）。"
+        user_prompt = f"这是之前记录：“{conversations_str}”。你要作为{memory.assistant_name}在对{last_speaker}说完“{last_content}”后继续对{last_speaker}做出符合{memory.assistant_name}角色设定的回复。回复应与“{last_content}”自然的衔接。"
         user_prompt += f"确保回复符合{memory.assistant_name}角色设定。确保回复充分体现{memory.assistant_name}的性格特征和情感反应。确保回复与“{last_content}”不雷同。确保回复开头没有使用“好的，”、“{memory.user_name}，”等形式。"
         user_prompt += f"只提供{memory.assistant_name}的回复内容，不需要其他说明。"
 
@@ -95,9 +92,8 @@ class Thoughts:
         conversations = memory.short_term_memory[-memory.analyze_max_conversations :]
         profile = profile + background
         user_prompt = f"这是{memory.assistant_name}的角色设定“{profile}”。"
-        user_prompt += f"""站在{memory.assistant_name}的角度分析{memory.assistant_name}看完群聊消息记录“{memory.get_conversations_str_for_group(conversations)}”后的心理活动。"""
-        user_prompt += f"确保考虑到上下文，并依据{memory.assistant_name}的性格特点和当前情境进行心理分析，充分体现{memory.assistant_name}的性格特征和情感反应。"
-        user_prompt += f"""消息格式为群友昵称说：“”。作为{memory.assistant_name}描述自己的心理活动。确保心理活动符合{memory.assistant_name}的角色设定。确保心理活动简明扼要，意图明确。只提供50字以内的心理活动，不需要其他说明。"""
+        user_prompt += f"""站在{memory.assistant_name}的角度分析群聊消息记录“{memory.get_conversations_str_for_group(conversations)}”群友们的意图。"""
+        user_prompt += f"""消息格式为群友昵称说：“”。确保分析简明扼要，意图明确。只提供{memory.max_thinking_words}字以内的分析结果，不需要其他说明。"""
 
         self._generator.set_speakers([memory.assistant_name])
         analysis_result = await self._generator.return_string(user_prompt)
@@ -108,8 +104,8 @@ class Thoughts:
         count, unreplied_conversations = memory.get_unreplied_msg(unreplied_count)
         replied_conversations = conversations[:-count]
 
-        profile = card.get_profile()
-        background = card.get_background()
+        profile = memory.to_custom_names(card.get_profile())
+        background = memory.to_custom_names(card.get_background())
 
         unreplied_conversations_str = memory.get_conversations_str_for_group(unreplied_conversations)
         replied_conversations_str = memory.get_conversations_str_for_group(replied_conversations)
@@ -118,7 +114,7 @@ class Thoughts:
         user_prompt = ""
         if replied_conversations_str:
             user_prompt += f"这是之前群聊消息记录“{replied_conversations_str}”，"
-        user_prompt += f"这是未回复的群聊消息记录“{unreplied_conversations_str}”。消息格式为群友昵称说：“”。你要作为{memory.assistant_name}根据以上信息对未回复的群聊消息记录做出符合{memory.assistant_name}角色设定的回复。确保回复充分体现{memory.assistant_name}的性格特征和心理活动“{analysis}”的情感反应。"
+        user_prompt += f"这是未回复的群聊消息记录“{unreplied_conversations_str}”。消息格式为群友昵称说：“”。你要作为{memory.assistant_name}参考群聊消息记录分析结果“{analysis}”对未回复的群聊消息记录做出符合{memory.assistant_name}角色设定的回复。确保回复充分体现{memory.assistant_name}的性格特征和情感反应。"
         user_prompt += f"不称呼群友昵称，使用你或你们代指群友。只提供{memory.assistant_name}的回复内容，不需要消息记录格式。"
 
         return user_prompt, analysis

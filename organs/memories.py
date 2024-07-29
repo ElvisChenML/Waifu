@@ -3,6 +3,7 @@ import numpy as np
 import json
 import os
 import re
+from collections import Counter
 from plugins.Waifu.cells.text_analyzer import TextAnalyzer
 from plugins.Waifu.cells.generator import Generator
 from pkg.plugin.context import APIHost
@@ -20,6 +21,9 @@ class Memory:
         self.value_game_max_conversations = 5
         self.response_min_conversations = 5
         self.response_rate = 0.7
+        self.max_thinking_words = 30
+        self.max_narrat_words = 30
+        self.repeat_trigger = 0
         self.user_name = "用户"
         self.assistant_name = "助手"
         self._text_analyzer = TextAnalyzer(host)
@@ -38,6 +42,7 @@ class Memory:
         self._summarization_mode = False
         self._status_file = ""
         self._thinking_mode_flag = True
+        self._already_repeat = set()
         self._load_long_term_memory_from_file()
         self._load_short_term_memory_from_file()
 
@@ -59,6 +64,9 @@ class Memory:
         self.value_game_max_conversations = waifu_config.data.get("value_game_max_conversations", 5)
         self.response_min_conversations = waifu_config.data.get("response_min_conversations", 5)
         self.response_rate = waifu_config.data.get("response_rate", 0.7)
+        self.max_thinking_words = waifu_config.data.get("max_thinking_words", 30)
+        self.max_narrat_words = waifu_config.data.get("max_narrat_words", 30)
+        self.repeat_trigger = waifu_config.data.get("repeat_trigger", 0)
 
         character_config = ConfigManager(f"plugins/Waifu/water/cards/{character}", f"plugins/Waifu/water/templates/default_{launcher_type}")
         await character_config.load_config(completion=False)
@@ -344,17 +352,50 @@ class Memory:
         last_messages = conversations[-n:] if n <= len(conversations) else conversations
         combined_content = ""
         for message in last_messages:
-            message_content = str(message.get_content_mirai_message_chain())
-            message_content = self.to_custom_names(message_content)
-            match = re.search(r"\[\d{2}年\d{2}月\d{2}日\d{2}时\d{2}分\]", message_content)
-            if match:
-                # 获取匹配到的时间戳后的内容
-                content_after_timestamp = message_content[match.end() :].strip()
-                combined_content += content_after_timestamp + " "
-            else:
-                combined_content += message_content + " "
+            combined_content += self._get_content_str_without_timestamp(message) + " "
 
         return combined_content.strip()
+
+    def _get_content_str_without_timestamp(self, message: llm_entities.Message) -> str:
+        message_content = str(message.get_content_mirai_message_chain())
+        message_content = self.to_custom_names(message_content)
+        match = re.search(r"\[\d{2}年\d{2}月\d{2}日\d{2}时\d{2}分\]", message_content)
+        if match:
+            # 获取匹配到的时间戳后的内容
+            content_after_timestamp = message_content[match.end() :].strip()
+            return content_after_timestamp
+        else:
+            return message_content
+
+
+    def get_repeat_msg(self) -> str:
+        """
+        检查短期记忆范围内的重复发言，若assistant没有复读过，则进行复读。
+        """
+        if self.repeat_trigger < 1: # 未开启复读功能
+            return ""
+
+        conversations = self.short_term_memory
+        content_counter = Counter()
+        potential_repeats = []
+
+        for message in conversations:
+            message_content = self._get_content_str_without_timestamp(message)
+            if message.role == "assistant":
+                self._already_repeat.add(message_content)
+            content_counter[message_content] += 1
+            if content_counter[message_content] > self.repeat_trigger:
+                # 更新复读条目的顺序，用于判断最新的复读
+                if message_content in potential_repeats:
+                    potential_repeats.remove(message_content)
+                potential_repeats.append(message_content)
+        repeat_messages = [msg for msg in potential_repeats if msg not in self._already_repeat]
+        self._already_repeat.update(repeat_messages)  # 若有多条重复，只会跟读最新一种，其他则舍弃
+
+        if repeat_messages:
+            return repeat_messages[-1]
+        else:
+            return ""
 
     def to_custom_names(self, text: str) -> str:
         text = re.sub(r"user", self.user_name, text, flags=re.IGNORECASE)

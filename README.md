@@ -29,6 +29,16 @@
   * 情感表达：通过语言表达安慰、同情、喜悦等情感。
 * 事件：虚构生活细节和日常活动，加入话题中。
 
+### Waifu 1.5
+
+* 新增 群聊黑名单 blacklist 配置项，现在你可以屏蔽群中特定QQ号了。
+* 新增 语音插件适配，目前支援[NewChatVoice](https://github.com/the-lazy-me/NewChatVoice)1.1及以上的版本。
+* 新增 复读 repeat_trigger 配置项，可以设置群聊出现重复发言时触发复读的最小次数（不含原发言）；触发回复后，检测到重复出现的对话时参与复读。
+* 新增 配置项：最大旁白字数 max_narrat_words 、最大思考字数 max_thinking_words ，此配置不是硬性限制，该配置体现于提示语中。
+* 优化 引号去除算法。
+* 优化 思维链逻辑由“心理活动”至“对话分析”以优化体验。
+* 修复 回复期间收到新消息，未正确触发回复的异常。
+
 ### Waifu 1.4
 
 * 新增 "thinking_mode"可关闭思维链。
@@ -37,9 +47,9 @@
 * 新增 角色卡新增固定内置属性Prologue（开场白），现在你可以通过命令[开场白]，控制旁白输出开场白的内容。
 * 优化 角色卡现在支援任意属性，满足yaml的key、value格式即可，value可为字符串或列表。
 * 优化 去除模型输出说话者的逻辑（“苏苏：”）。
-* 优化 角色设定文件鲁棒性
+* 优化 角色设定文件鲁棒性。
 * 修改 非拟人模式保留输出中的换行符，但是会删除空行。
-* 修改 取消群组的命令限制:控制人物、推进剧情
+* 修改 取消群组的命令限制:控制人物、推进剧情。
 
 ### Waifu 1.3
 
@@ -249,10 +259,12 @@
   thinking_mode: true # 是否开启思维链。
   personate_mode: true # 是否启用拟人化：打字时间、分段回复。
   jail_break_mode: "off" # off/before/after；是否启用破甲，off：关闭破甲，before：系统提示前加入破甲提示，after：系统提示后加入破甲提示；破甲内容请修改：jail_break_before.txt、jail_break_after.txt。
+  tts_mode: "off" # off/ncv；是否启用文字转语音，off：关闭文字转语音，ncv：调用NewChatVoice插件。
   
   # 思考模块
   display_thinking: false # 是否显示内心活动。
   analyze_max_conversations: 9 # 用于生成分析的最大对话数量。
+  max_thinking_words: 30 # 最大思考字数，此配置不是硬性限制，该配置体现于提示语中。
   
   # 记忆模块
   short_term_memory_size: 40 # 短期记忆，完整的对话记录长度。
@@ -264,12 +276,15 @@
   response_min_conversations: 5 # 群聊触发回复的最小对话数量。
   response_rate: 0.7 # 群聊触达到最小对话数量后回复的机率，为1时所有消息都响应。
   group_response_delay: 3 # 群聊消息合并等待时间。
+  blacklist: [] # 屏蔽列表，将自动过滤来自列表中QQ号的消息；以数字列表形式输入：[QQ号, QQ号, QQ号, ...]。
+  repeat_trigger: 2 # 0为关闭复读；群聊出现重复发言时触发复读的最小次数（不含原发言）；触发回复后，检测到重复出现的对话时参与复读。
   
   # 拟人化设置
   bracket_rate: [0.1, 0.1] # 回复末尾加括号的机率，第一个对应加（）的机率，第二个对应加（的机率。
   
   # 私聊剧情模式
   display_value: false # 是否每次回复后显示数值；若关闭，请通过命令[态度]查看。
+  max_narrat_words: 30 # 最大旁白字数，此配置不是硬性限制，该配置体现于提示语中。
   narrat_max_conversations: 8 # 用于生成旁白的最大对话数量。
   value_game_max_conversations: 5 # 判定数值变化时输入的最大对话数量。
   intervals: [300, 600, 1800, 3600] # 列表，自动触发旁白推进剧情的时间间隔，单位秒，默认为[300,600,1800,3600]，即：第一次5分钟、第二次10分钟、第三次30分钟、第四次一个小时，然后停止计时器。
@@ -325,6 +340,6 @@
 
 感谢 [LangGPT](https://github.com/langgptai/LangGPT) 提供人物预设提示词范式
 
-感谢 [腾讯人工智能实验室](http://ai.tencent.com/ailab/) 提供的[**文本理解系统**](https://ai.tencent.com/ailab/nlp/texsmart/zh/index.html) TexSmart API
+感谢 [腾讯人工智能实验室](http://ai.tencent.com/ailab/) 提供的 [文本理解系统](https://ai.tencent.com/ailab/nlp/texsmart/zh/index.html) TexSmart API
 
 感谢 [CyberWaifu](https://github.com/Syan-Lin/CyberWaifu) [koishi-plugin-aikanojo](https://github.com/HunterShenSmzh/koishi-plugin-aikanojo) [Spit_chatBot](https://github.com/LUMOXu/Spit_chatBot) 提供的思路和代码

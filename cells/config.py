@@ -18,10 +18,10 @@ class ConfigManager:
             if os.path.exists(self.template_file):
                 # 如果配置文件不存在，并且提供了模板，则使用模板创建配置文件
                 shutil.copyfile(self.template_file, self.config_file)
-                print(f'配置文件 {self.config_file} 已从模板 {self.template_file} 创建')
+                print(f"配置文件 {self.config_file} 已从模板 {self.template_file} 创建")
             else:
                 # 如果模板文件不存在，输出相应的日志
-                print(f'模板文件 {self.template_file} 不存在，无法创建配置文件 {self.config_file}')
+                print(f"模板文件 {self.template_file} 不存在，无法创建配置文件 {self.config_file}")
 
         with open(self.config_file, "r", encoding="utf-8") as config_file:
             self.data = yaml.safe_load(config_file)
@@ -63,51 +63,35 @@ class ConfigManager:
             shutil.copyfile(self.template_file, self.config_file)
 
             # 检查是否有缺失的配置项，进行补全
-            with open(self.config_file, "r", encoding="utf-8") as config_file:
-                config_lines = config_file.readlines()
-
-            new_config_lines = []
-            for line in config_lines:
-                if ":" in line:
-                    key_value_comment = line.split("#", 1)
-                    key_value = key_value_comment[0].split(":", 1)
-                    if len(key_value) == 2:
-                        key = key_value[0].strip()
-                        comment = f" #{key_value_comment[1]}" if len(key_value_comment) > 1 else ""
-                        if key in self.data:
-                            value = self.data[key]
-                            new_config_lines.append(f"{key}: {value}{comment}\n")
-                        else:
-                            new_config_lines.append(line)
-                    else:
-                        new_config_lines.append(line)
-                else:
-                    new_config_lines.append(line)
-
-            # 将新的配置写回文件
-            with open(self.config_file, "w", encoding="utf-8") as config_file:
-                config_file.writelines(new_config_lines)
+            await self.write_config(self.config_file)
 
             # 其他补充配置或校验逻辑
             # 例如：验证配置项的值是否在合理范围内，初始化某些依赖项等
 
-    def save_config(self):
-        with open(self.config_file, "r", encoding="utf-8") as config_file:
+    async def write_config(self, file_path: str, key: str = None, value: str = None) -> None:
+        with open(file_path, "r", encoding="utf-8") as config_file:
             config_lines = config_file.readlines()
 
         new_config_lines = []
         for line in config_lines:
-            stripped_line = line.strip()
-            if stripped_line:
-                if ":" in stripped_line:
-                    key_value_comment = stripped_line.split("#", 1)
+            if line.strip():
+                line_clean = line.lstrip("#").strip()  # 去除行首的#和两端空白
+                if ":" in line_clean:
+                    key_value_comment = line_clean.split("#", 1)
                     key_value = key_value_comment[0].split(":", 1)
                     if len(key_value) == 2:
-                        key = key_value[0].strip()
+                        line_key = key_value[0].strip()
+                        line_value = key_value[1].strip()
                         comment = f" #{key_value_comment[1]}" if len(key_value_comment) > 1 else ""
-                        if key in self.data:
-                            value = self.data[key]
-                            new_config_lines.append(f"{key}: {value}{comment}")
+                        if key and value:  # 更新config_file_id中键值
+                            if line_key == key and line_value != value:
+                                new_line = f"{line_key}: {value}{comment}\n"
+                                new_config_lines.append(new_line)
+                            else:
+                                new_config_lines.append(line)
+                        elif line_key in self.data: # 非更新的保存：保留key: value后的备注
+                            new_line_value = self.data[line_key]
+                            new_config_lines.append(f"{line_key}: {new_line_value}{comment}\n")
                         else:
                             new_config_lines.append(line)
                     else:
@@ -115,5 +99,11 @@ class ConfigManager:
                 else:
                     new_config_lines.append(line)
 
-        with open(self.config_file, "w", encoding="utf-8") as config_file:
+        with open(file_path, "w", encoding="utf-8") as config_file:
             config_file.writelines(new_config_lines)
+
+    async def update_config(self, key: str, value: str):
+        file_path = self.config_file
+        if self.launcher_id:
+            file_path = self.config_file_id
+        await self.write_config(file_path, key, value)

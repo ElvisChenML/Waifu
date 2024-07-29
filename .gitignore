@@ -127,8 +127,9 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
-FindTree.bat
+
+# project
 water/cards/
 water/config/
 water/data/
-项目记录.md
+zilch/

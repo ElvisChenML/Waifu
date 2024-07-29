@@ -41,7 +41,7 @@ class Cards:
         self._prologue = config.data.get("Prologue", "")
 
         # Collect additional keys
-        predefined_keys = {"user_name", "assistant_name", "language", "Profile", "Skills", "Background", "Rules", "Speaking", "Restrictions", "Prologue"}
+        predefined_keys = {"user_name", "assistant_name", "language", "Profile", "Skills", "Background", "Rules", "Speaking", "Restrictions", "Prologue", "max_manner_change", "value_descriptions"}
         self._additional_keys = {key: value for key, value in config.data.items() if key not in predefined_keys}
 
     def set_memory(self, memories: typing.List[str]):
