@@ -138,8 +138,8 @@ class Waifu(BasePlugin):
             character = f"default_{launcher_type}"
 
         config.narrate_intervals = waifu_config.data.get("intervals", [])
-        config.story_mode = waifu_config.data.get("story_mode", True)
-        config.thinking_mode = waifu_config.data.get("thinking_mode", True)
+        config.story_mode_flag = waifu_config.data.get("story_mode", True)
+        config.thinking_mode_flag = waifu_config.data.get("thinking_mode", True)
         config.display_thinking = waifu_config.data.get("display_thinking", True)
         config.display_value = waifu_config.data.get("display_value", False)
         config.response_rate = waifu_config.data.get("response_rate", 0.7)

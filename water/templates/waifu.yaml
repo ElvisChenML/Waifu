@@ -35,5 +35,5 @@ narrat_max_conversations: 8 # 用于生成旁白的最大对话数量。
 value_game_max_conversations: 5 # 判定数值变化时输入的最大对话数量。
 intervals: [300, 600, 1800, 3600] # 列表，自动触发旁白推进剧情的时间间隔，单位秒，默认为[300,600,1800,3600]，即：第一次5分钟、第二次10分钟、第三次30分钟、第四次一个小时，然后停止计时器。
 person_response_delay: 0 # 私聊消息合并等待时间。
-continued_rate: 0.2 # 自动触发回复后继续发言的机率。
+continued_rate: 0 # 自动触发回复后继续发言的机率。
 continued_max_count: 2 # 私聊最大延续发言次数。

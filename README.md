@@ -29,6 +29,11 @@
   * 情感表达：通过语言表达安慰、同情、喜悦等情感。
 * 事件：虚构生活细节和日常活动，加入话题中。
 
+### Waifu 1.7
+
+* 修复 配置项 story_mode、thinking_mode 无法生效的异常。
+* 修改 配置项 continued_rate 默认为 0。
+
 ### Waifu 1.6
 
 * 新增 配置项character 的 “off ” 选项，当填入 “off” 时，将不使用角色预设，惟存在长期记忆时，会在system prompt中加入memories的内容。
