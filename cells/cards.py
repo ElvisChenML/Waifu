@@ -8,9 +8,9 @@ class Cards:
     def __init__(self, host: APIHost):
         self.host = host
         self.ap = host.ap
-        self._user_name = "用户"
-        self._assistant_name = "助手"
-        self._language = "简体中文"
+        self._user_name = "user"
+        self._assistant_name = "assistant"
+        self._language = ""
         self._profile = []
         self._skills = []
         self._background = []
@@ -22,8 +22,14 @@ class Cards:
         self._restrictions = []
         self._prologue = ""
         self._additional_keys = {}
+        self._has_preset = True
 
     async def load_config(self, character: str, launcher_type: str):
+        if character == "off":
+            self._has_preset = False
+            return        
+        self._has_preset = True
+        
         config = ConfigManager(f"plugins/Waifu/water/cards/{character}", f"plugins/Waifu/water/templates/default_{launcher_type}")
         await config.load_config(completion=False)
         self._user_name = config.data.get("user_name", "用户")

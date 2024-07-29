@@ -32,13 +32,25 @@ class TextAnalyzer:
         TextAnalyzer.LOADED_DICTIONARIES[file] = config.data
         return config.data
 
+
     def _call_texsmart_api(self, text: str) -> Dict[str, Any]:
         url = "https://texsmart.qq.com/api"
         obj = {"str": text}
         req_str = json.dumps(obj).encode()
-        r = requests.post(url, data=req_str)
-        r.encoding = "utf-8"
-        return r.json()
+
+        try:
+            r = requests.post(url, data=req_str)
+            r.encoding = "utf-8"
+            return r.json()
+        except requests.RequestException as e:
+            print(f"Request failed: {e}")
+            return {"error": "Request failed"}
+        except json.JSONDecodeError as e:
+            print(f"JSON decode failed: {e}")
+            return {"error": "JSON decode failed"}
+        except Exception as e:
+            print(f"An unexpected error occurred: {e}")
+            return {"error": "An unexpected error occurred"}
 
     def _parse_texsmart_response(self, response):
         parsed_data = {"word_list": [], "phrase_list": [], "entity_list": []}

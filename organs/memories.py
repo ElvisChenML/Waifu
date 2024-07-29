@@ -24,8 +24,8 @@ class Memory:
         self.max_thinking_words = 30
         self.max_narrat_words = 30
         self.repeat_trigger = 0
-        self.user_name = "用户"
-        self.assistant_name = "助手"
+        self.user_name = "user"
+        self.assistant_name = "assistant"
         self._text_analyzer = TextAnalyzer(host)
         self._launcher_id = launcher_id
         self._launcher_type = launcher_type
@@ -45,10 +45,9 @@ class Memory:
         self._already_repeat = set()
         self._load_long_term_memory_from_file()
         self._load_short_term_memory_from_file()
+        self._has_preset = True
 
     async def load_config(self, character: str, launcher_id: str, launcher_type: str):
-        self._status_file = f"plugins/Waifu/water/data/{character}_{launcher_id}.json"
-
         waifu_config = ConfigManager(f"plugins/Waifu/water/config/waifu", "plugins/Waifu/water/templates/waifu", launcher_id)
         await waifu_config.load_config(completion=True)
 
@@ -68,10 +67,15 @@ class Memory:
         self.max_narrat_words = waifu_config.data.get("max_narrat_words", 30)
         self.repeat_trigger = waifu_config.data.get("repeat_trigger", 0)
 
-        character_config = ConfigManager(f"plugins/Waifu/water/cards/{character}", f"plugins/Waifu/water/templates/default_{launcher_type}")
-        await character_config.load_config(completion=False)
-        self.user_name = character_config.data.get("user_name", "用户")
-        self.assistant_name = character_config.data.get("assistant_name", "助手")
+        if character != "off":
+            self._has_preset = True
+            self._status_file = f"plugins/Waifu/water/data/{character}_{launcher_id}.json"
+            character_config = ConfigManager(f"plugins/Waifu/water/cards/{character}", f"plugins/Waifu/water/templates/default_{launcher_type}")
+            await character_config.load_config(completion=False)
+            self.user_name = character_config.data.get("user_name", "用户")
+            self.assistant_name = character_config.data.get("assistant_name", "助手")
+        else:
+            self._has_preset = False
 
     async def _tag_conversations(self, conversations: typing.List[llm_entities.Message]) -> typing.Tuple[str, typing.List[str]]:
         if len(conversations) > 1:
@@ -367,7 +371,6 @@ class Memory:
         else:
             return message_content
 
-
     def get_repeat_msg(self) -> str:
         """
         检查短期记忆范围内的重复发言，若assistant没有复读过，则进行复读。
@@ -398,6 +401,8 @@ class Memory:
             return ""
 
     def to_custom_names(self, text: str) -> str:
+        if not self._has_preset:
+            return text
         text = re.sub(r"user", self.user_name, text, flags=re.IGNORECASE)
         text = re.sub(r"用户", self.user_name, text, flags=re.IGNORECASE)
         text = re.sub(r"assistant", self.assistant_name, text, flags=re.IGNORECASE)
@@ -405,6 +410,8 @@ class Memory:
         return text
 
     def to_generic_names(self, text: str) -> str:
+        if not self._has_preset:
+            return text
         text = re.sub(self.user_name, "user", text, flags=re.IGNORECASE)
         text = re.sub(r"用户", "user", text, flags=re.IGNORECASE)
         text = re.sub(self.assistant_name, "assistant", text, flags=re.IGNORECASE)

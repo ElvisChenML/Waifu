@@ -19,7 +19,11 @@ class Thoughts:
         last_role = memory.get_last_role(conversations)
         last_content = memory.get_last_content(conversations)
         last_speaker = memory.get_last_speaker(conversations)
-        user_prompt = f"这是之前记录：“{conversations_str}”。这是{memory.assistant_name}的角色设定“{profile}{background}”。这是你的行为准则“{manner}”。"
+        user_prompt = f"这是之前记录：“{conversations_str}”。"
+        if profile or background:
+            user_prompt += f"这是{memory.assistant_name}的角色设定“{profile}{background}”。"
+        if manner:
+            user_prompt += f"这是你的行为准则“{manner}”。"
         if last_role == "narrator":
             user_prompt += f"""分析之前记录中“{last_content}”里“{"、".join(speakers)}”之间的行为及事件。"""
         else:
@@ -64,7 +68,11 @@ class Thoughts:
 
         conversations = memory.short_term_memory
         _, conversations_str = memory.get_conversations_str_for_person(conversations)
-        user_prompt = f"这是{memory.assistant_name}的角色设定“{profile}”。这是之前记录：“{conversations_str}”。你需要依据{memory.assistant_name}角色设定和上下文推测{character}和{memory.assistant_name}之间的关系以及{character}的角色设定。"
+
+        user_prompt = ""
+        if profile:
+            user_prompt += f"这是{memory.assistant_name}的角色设定“{profile}”。"
+        user_prompt += f"这是之前记录：“{conversations_str}”。你需要依据{memory.assistant_name}角色设定和上下文推测{character}和{memory.assistant_name}之间的关系以及{character}的角色设定。"
 
         last_role = memory.get_last_role(conversations)
         last_content = memory.get_last_content(conversations)
@@ -90,8 +98,9 @@ class Thoughts:
 
     async def _analyze_group_conversations(self, memory: Memory, profile: str, background: str) -> str:
         conversations = memory.short_term_memory[-memory.analyze_max_conversations :]
-        profile = profile + background
-        user_prompt = f"这是{memory.assistant_name}的角色设定“{profile}”。"
+        user_prompt = ""
+        if profile or background:
+            user_prompt += f"这是{memory.assistant_name}的角色设定“{profile}{background}”。"
         user_prompt += f"""站在{memory.assistant_name}的角度分析群聊消息记录“{memory.get_conversations_str_for_group(conversations)}”群友们的意图。"""
         user_prompt += f"""消息格式为群友昵称说：“”。确保分析简明扼要，意图明确。只提供{memory.max_thinking_words}字以内的分析结果，不需要其他说明。"""
 

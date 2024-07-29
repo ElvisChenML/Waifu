@@ -182,14 +182,14 @@ class Generator:
 
     def _remove_surrounding_quotes(self, text: str) -> str:
         # 定义匹配中英文单双引号的正则表达式
-        pattern = r"^([\"“‘'])?(.*?)([\"”’'])?$"
+        pattern = r"^([\"“‘'`「])?(.*?)([\"”’'`」])?$"
         # 检查字符串是否仅头尾有引号
         match = re.match(pattern, text)
         if match:
             start_quote, content, end_quote = match.groups()
             if start_quote and end_quote:
                 # 确保头尾引号匹配，并且中间内容不包含未配对的头尾引号
-                if start_quote in ('"', "“", "‘") and end_quote in ('"', "”", "’") and content.count(start_quote) == content.count(end_quote):
+                if start_quote in ('"', "“", "`", "「") and end_quote in ('"', "”", "`", "」") and content.count(start_quote) == content.count(end_quote):
                     return content
                 elif start_quote in ("'", "‘", "’") and end_quote in ("'", "’", "‘") and content.count(start_quote) == content.count(end_quote):
                     return content

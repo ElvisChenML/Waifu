@@ -72,7 +72,7 @@ class WaifuConfig:
         self.blacklist = []
 
 
-@register(name="Waifu", description="Cuter than real waifu!", version="1.5", author="ElvisChenML")
+@register(name="Waifu", description="Cuter than real waifu!", version="1.6", author="ElvisChenML")
 class Waifu(BasePlugin):
     def __init__(self, host: APIHost):
         self.host = host
@@ -209,7 +209,11 @@ class Waifu(BasePlugin):
             config.value_game.change_manner_value(value)
             response = f"数值已改变：{value}"
         elif msg == "态度":
-            response = f"💕值：{config.value_game.get_value()}\n态度：{config.value_game.get_manner_description()}"
+            manner = config.value_game.get_manner_description()
+            if manner:
+                response = f"💕值：{config.value_game.get_value()}\n态度：{manner}"
+            else:
+                response = f"错误：未正确设定态度值相关配置"
         elif msg == "加载配置":
             launcher_type = ctx.event.launcher_type
             await self._load_config(launcher_id, launcher_type)
@@ -417,7 +421,8 @@ class Waifu(BasePlugin):
             if config.story_mode_flag:
                 value_game = config.value_game
                 manner = value_game.get_manner_description()
-                config.cards.set_manner(manner)
+                if manner:
+                    config.cards.set_manner(manner)
             if config.summarization_mode:
                 _, unreplied_conversations = config.memory.get_unreplied_msg(config.unreplied_count)
                 related_memories = await config.memory.load_memory(unreplied_conversations)

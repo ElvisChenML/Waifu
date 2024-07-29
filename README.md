@@ -29,6 +29,11 @@
   * 情感表达：通过语言表达安慰、同情、喜悦等情感。
 * 事件：虚构生活细节和日常活动，加入话题中。
 
+### Waifu 1.6
+
+* 新增 配置项character 的 “off ” 选项，当填入 “off” 时，将不使用角色预设，惟存在长期记忆时，会在system prompt中加入memories的内容。
+* 优化 增加texsmart_api调用失败时的错误处理。
+
 ### Waifu 1.5
 
 * 新增 群聊黑名单 blacklist 配置项，现在你可以屏蔽群中特定QQ号了。
@@ -253,7 +258,7 @@
   
   ```yaml
   # 通用设置
-  character: "default" # 使用water/cards中的预设名称，使用默认值“default”时会使用模板Water/config/default_*.yaml创建water/cards/default_*.yaml。
+  character: "default" # off：不使用角色预设；使用water/cards中的预设名称，使用默认值“default”时会使用模板Water/config/default_*.yaml创建water/cards/default_*.yaml。
   summarization_mode: true # 是否开启长期记忆，不开启则超出short_term_memory_size直接截断。
   story_mode: true # 是否开启剧情模式（旁白、状态栏），仅私聊模式生效。
   thinking_mode: true # 是否开启思维链。

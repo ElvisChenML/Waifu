@@ -20,8 +20,14 @@ class ValueGame:
         self._value_change = None
         self._config = None
         self._status_file = ""
+        self._has_preset = True
 
     async def load_config(self, character: str, launcher_id: str, launcher_type: str):
+        if character == "off":
+            self._has_preset = False
+            return        
+        self._has_preset = True
+
         self._status_file = f"plugins/Waifu/water/data/{character}_{launcher_id}.json"
 
         character_config_path = f"plugins/Waifu/water/cards/{character}"
@@ -39,6 +45,8 @@ class ValueGame:
         self._max_manner_change = self._config.data.get("max_manner_change", 10)
 
     async def determine_manner_change(self, memory: Memory, continued_count: int):
+        if not self._has_preset:
+            return
         last_speaker = memory.get_last_speaker(memory.short_term_memory)
         if last_speaker != memory.user_name:  # 只有用户发言可以影响到Value值变化
             self._value_change = None
@@ -80,7 +88,7 @@ class ValueGame:
         return self._value
 
     def get_manner_description(self) -> str:
-        last_description = "正常相处"
+        last_description = ""
         for desc in self._manner_descriptions:
             last_description = self._list_to_prompt_str(desc["description"])
             if self._value <= desc["max"]:
