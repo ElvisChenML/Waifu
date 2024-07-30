@@ -180,7 +180,7 @@ class Memory:
             if self._summarization_mode:
                 await self._tag_and_add_conversations()
             else:
-                self.short_term_memory = self.short_term_memory[self._short_term_memory_size :]
+                self.short_term_memory = self.short_term_memory[-self._short_term_memory_size :]
 
     async def remove_last_memory(self) -> str:
         if self.short_term_memory:

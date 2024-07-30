@@ -72,7 +72,7 @@ class WaifuConfig:
         self.blacklist = []
 
 
-@register(name="Waifu", description="Cuter than real waifu!", version="1.7", author="ElvisChenML")
+@register(name="Waifu", description="Cuter than real waifu!", version="1.71", author="ElvisChenML")
 class Waifu(BasePlugin):
     def __init__(self, host: APIHost):
         self.host = host
