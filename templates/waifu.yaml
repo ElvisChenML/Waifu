@@ -1,9 +1,9 @@
 # 通用设置
 character: "default" # off：不使用角色预设；使用cards中的预设名称，使用默认值“default”时会使用模板config/default_*.yaml创建cards/default_*.yaml。
-summarization_mode: true # 是否开启长期记忆，不开启则超出short_term_memory_size直接截断。
-story_mode: true # 是否开启剧情模式（旁白、状态栏），仅私聊模式生效。
+summarization_mode: false # 是否开启长期记忆，不开启则超出short_term_memory_size直接截断。
+story_mode: false # 是否开启剧情模式（旁白、状态栏），仅私聊模式生效。
 thinking_mode: true # 是否开启思维链。
-personate_mode: true # 是否启用拟人化：打字时间、分段回复。
+personate_mode: false # 是否启用拟人化：打字时间、分段回复。
 jail_break_mode: "off" # off/before/after；是否启用破甲，off：关闭破甲，before：系统提示前加入破甲提示，after：系统提示后加入破甲提示；破甲内容请修改：jail_break_before.txt、jail_break_after.txt。
 tts_mode: "off" # off/ncv；是否启用文字转语音，off：关闭文字转语音，ncv：调用NewChatVoice插件。
 
@@ -19,9 +19,9 @@ retrieve_top_n: 3 # 长期记忆，每次提取retrieve_top_n条相关的长期�
 summary_max_tags: 50 # 长期记忆，每段长期记忆的最大标签数量（高频词、类型名称）。
 
 # 群聊设置
-response_min_conversations: 5 # 群聊触发回复的最小对话数量。
-response_rate: 0.7 # 群聊触达到最小对话数量后回复的机率，为1时所有消息都响应。
-group_response_delay: 3 # 群聊消息合并等待时间。
+response_min_conversations: 1 # 群聊触发回复的最小对话数量。
+response_rate: 1 # 群聊触达到最小对话数量后回复的机率，为1时所有消息都响应。
+group_response_delay: 0 # 群聊消息合并等待时间。
 blacklist: [] # 屏蔽列表，将自动过滤来自列表中QQ号的消息；以数字列表形式输入：[QQ号, QQ号, QQ号, ...]。
 repeat_trigger: 2 # 0为关闭复读；群聊出现重复发言时触发复读的最小次数（不含原发言）；触发回复后，检测到重复出现的对话时参与复读。
 
@@ -33,7 +33,7 @@ display_value: false # 是否每次回复后显示数值；若关闭，请通过
 max_narrat_words: 30 # 最大旁白字数，此配置不是硬性限制，该配置体现于提示语中。
 narrat_max_conversations: 8 # 用于生成旁白的最大对话数量。
 value_game_max_conversations: 5 # 判定数值变化时输入的最大对话数量。
-intervals: [300, 600, 1800, 3600] # 列表，自动触发旁白推进剧情的时间间隔，单位秒，默认为[300,600,1800,3600]，即：第一次5分钟、第二次10分钟、第三次30分钟、第四次一个小时，然后停止计时器。
+intervals: [] # 列表，自动触发旁白推进剧情的时间间隔，单位秒，例如：[300,600,1800,3600]：第一次5分钟、第二次10分钟、第三次30分钟、第四次一个小时，然后停止计时器。
 person_response_delay: 0 # 私聊消息合并等待时间。
 continued_rate: 0 # 自动触发回复后继续发言的机率。
 continued_max_count: 2 # 私聊最大延续发言次数。

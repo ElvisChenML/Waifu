@@ -61,7 +61,9 @@ class Memory:
         self.analyze_max_conversations = waifu_config.data.get("analyze_max_conversations", 9)
         self.narrate_max_conversations = waifu_config.data.get("narrat_max_conversations", 8)
         self.value_game_max_conversations = waifu_config.data.get("value_game_max_conversations", 5)
-        self.response_min_conversations = waifu_config.data.get("response_min_conversations", 5)
+        self.response_min_conversations = waifu_config.data.get("response_min_conversations", 1)
+        if self.response_min_conversations < 1:
+            self.response_min_conversations = 1 # 最小值为1
         self.response_rate = waifu_config.data.get("response_rate", 0.7)
         self.max_thinking_words = waifu_config.data.get("max_thinking_words", 30)
         self.max_narrat_words = waifu_config.data.get("max_narrat_words", 30)
