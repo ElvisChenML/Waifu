@@ -36,9 +36,9 @@ class Memory:
         self._memory_batch_size = 50
         self._retrieve_top_n = 5
         self._summary_max_tags = 50
-        self._long_term_memory_file = f"plugins/Waifu/water/data/memories_{launcher_id}.json"
-        self._conversations_file = f"plugins/Waifu/water/data/conversations_{launcher_id}.log"
-        self._short_term_memory_file = f"plugins/Waifu/water/data/short_term_memory_{launcher_id}.json"
+        self._long_term_memory_file = f"data/plugins/Waifu/data/memories_{launcher_id}.json"
+        self._conversations_file = f"data/plugins/Waifu/data/conversations_{launcher_id}.log"
+        self._short_term_memory_file = f"data/plugins/Waifu/data/short_term_memory_{launcher_id}.json"
         self._summarization_mode = False
         self._status_file = ""
         self._thinking_mode_flag = True
@@ -48,7 +48,7 @@ class Memory:
         self._has_preset = True
 
     async def load_config(self, character: str, launcher_id: str, launcher_type: str):
-        waifu_config = ConfigManager(f"plugins/Waifu/water/config/waifu", "plugins/Waifu/water/templates/waifu", launcher_id)
+        waifu_config = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu", launcher_id)
         await waifu_config.load_config(completion=True)
 
         self._thinking_mode_flag = waifu_config.data.get("thinking_mode", True)
@@ -69,8 +69,8 @@ class Memory:
 
         if character != "off":
             self._has_preset = True
-            self._status_file = f"plugins/Waifu/water/data/{character}_{launcher_id}.json"
-            character_config = ConfigManager(f"plugins/Waifu/water/cards/{character}", f"plugins/Waifu/water/templates/default_{launcher_type}")
+            self._status_file = f"data/plugins/Waifu/data/{character}_{launcher_id}.json"
+            character_config = ConfigManager(f"data/plugins/Waifu/cards/{character}", f"plugins/Waifu/templates/default_{launcher_type}")
             await character_config.load_config(completion=False)
             self.user_name = character_config.data.get("user_name", "用户")
             self.assistant_name = character_config.data.get("assistant_name", "助手")
@@ -208,7 +208,7 @@ class Memory:
             self._conversations_file,
             self._short_term_memory_file,
             self._status_file,
-            f"plugins/Waifu/water/data/life_{self._launcher_id}.json",
+            f"data/plugins/Waifu/data/life_{self._launcher_id}.json",
         ]
 
         for file in files_to_delete:

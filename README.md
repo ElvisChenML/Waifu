@@ -65,8 +65,8 @@
 
 * 新增 人设支援新属性：Speaking说话风格、Restrictions限制，请参考新私聊默认人设。
 * 新增 集成破限，破除限制将不需要再放入角色卡中，开启后会将破除限制提示语加在每次请求中，旁白也可以输出#￥%&*了！破限分为系统提示前破限、系统提示后破限，可于配置文件中进行破除限制相关设置“jail_break_mode”。
-  * Waifu\water\config\jail_break_before.txt 系统提示前破限，可自行修改维护
-  * Waifu\water\config\jail_break_after.txt 系统提示后破限，可自行修改维护
+  * Waifu\config\jail_break_before.txt 系统提示前破限，可自行修改维护
+  * Waifu\config\jail_break_after.txt 系统提示后破限，可自行修改维护
 * 新增 “continued_rate”回复后机率触发继续发言延续话题，“continued_max_count”设置最大触发次数。
 * 新增 “display_value”属性，控制是否每次回复后显示数值，若关闭，请通过命令[态度]查看。
 * 新增 “继续”指令，主动触发模型继续回复推进剧情。
@@ -77,12 +77,12 @@
   * 使用范例：控制人物杰克|继续
 * 优化 将模型输出标点符号统一替换回中文符号，去除回复头尾的的单双引号。
 * 优化 引入中文分词取代模型实现数值变化及记忆总结标签，大量减少了模型调用次数（标签效果有亿点点差）。
-  * Waifu\water\config\positive.yaml 存放正向分词
-  * Waifu\water\config\negative.yaml 存放负面分词
-  * Waifu\water\config\meaningless.yaml 存放无意义的字
+  * Waifu\config\positive.yaml 存放正向分词
+  * Waifu\config\negative.yaml 存放负面分词
+  * Waifu\config\meaningless.yaml 存放无意义的字
     * 为了减少正负分词维护工作量，匹配时会从正负分词中将“无意义的字”先删除，然后再进行匹配，例如：好吧 -> 好。
-  * Waifu\water\config\unrecognized_words.yaml 用于记录未识别的分词
-  * Waifu\water\config\tidy.py 整理脚本，文件可自行维护，维护后建议运行 python tidy.py 整理正负分词，脚本将执行：排序、单文件去重、正负文件去重（负文件优先级高）
+  * Waifu\config\unrecognized_words.yaml 用于记录未识别的分词
+  * Waifu\config\tidy.py 整理脚本，文件可自行维护，维护后建议运行 python tidy.py 整理正负分词，脚本将执行：排序、单文件去重、正负文件去重（负文件优先级高）
 * 修改 私聊模式默认人设（参考 [小黄蕉](https://chatwiz.cn/h5/feely) 苏苏）。
 * 修改 剧情模式可开启拟人化。
 * 修改 取消删除记忆时会删除默认配置文件。 
@@ -255,7 +255,7 @@
     },
     ```
   
-* water/config/waifu.yaml
+* config/waifu.yaml
   
   * 配置将分为 通用配置 “waifu.yaml”，以及会话配置 “waifu_&#91;会话&#93;.yaml”
   * 会话配置 优先级高于 通用配置
@@ -263,7 +263,7 @@
   
   ```yaml
   # 通用设置
-  character: "default" # off：不使用角色预设；使用water/cards中的预设名称，使用默认值“default”时会使用模板Water/config/default_*.yaml创建water/cards/default_*.yaml。
+  character: "default" # off：不使用角色预设；使用cards中的预设名称，使用默认值“default”时会使用模板config/default_*.yaml创建cards/default_*.yaml。
   summarization_mode: true # 是否开启长期记忆，不开启则超出short_term_memory_size直接截断。
   story_mode: true # 是否开启剧情模式（旁白、状态栏），仅私聊模式生效。
   thinking_mode: true # 是否开启思维链。
@@ -303,7 +303,7 @@
   continued_max_count: 2 # 私聊最大延续发言次数。
   ```
   
-* water/cards/default_*.yaml (person/group)
+* cards/default_*.yaml (person/group)
   
   ```yaml
   # system prompt 系统提示相关配置

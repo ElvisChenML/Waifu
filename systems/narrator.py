@@ -11,7 +11,7 @@ class Narrator:
         self.host = host
         self.ap = host.ap
         self._generator = Generator(host)
-        self._life_data_file = f"plugins/Waifu/water/data/life_{launcher_id}.json"
+        self._life_data_file = f"data/plugins/Waifu/data/life_{launcher_id}.json"
         self._profile = ""
         self._action = ""
         self._life_data = {}

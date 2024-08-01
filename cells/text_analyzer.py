@@ -25,13 +25,12 @@ class TextAnalyzer:
         if file in TextAnalyzer.LOADED_DICTIONARIES:
             return TextAnalyzer.LOADED_DICTIONARIES[file]
 
-        config = ConfigManager(f"plugins/Waifu/water/config/{file}", f"plugins/Waifu/water/templates/{file}")
+        config = ConfigManager(f"data/plugins/Waifu/config/{file}", f"plugins/Waifu/templates/{file}")
         await config.load_config(completion=False)
 
         # 将加载的字典数据存入全局变量
         TextAnalyzer.LOADED_DICTIONARIES[file] = config.data
         return config.data
-
 
     def _call_texsmart_api(self, text: str) -> Dict[str, Any]:
         url = "https://texsmart.qq.com/api"
@@ -161,7 +160,7 @@ class TextAnalyzer:
         :param filename: The name of the file to save the words in
         """
         existing_words = []
-        dict_file_path = f"plugins/Waifu/water/config/unrecognized_words.yaml"
+        dict_file_path = f"data/plugins/Waifu/config/unrecognized_words.yaml"
 
         if os.path.exists(dict_file_path):
             with open(dict_file_path, "r", encoding="utf-8") as f:

@@ -129,7 +129,4 @@ dmypy.json
 .pyre/
 
 # project
-water/cards/
-water/config/
-water/data/
 zilch/

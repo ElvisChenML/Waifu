@@ -80,9 +80,12 @@ class Waifu(BasePlugin):
         self._ensure_required_files_exist()
         self._generator = Generator(host)
         self.configs: typing.Dict[str, WaifuConfig] = {}
+        self._set_permissions_recursively("data/plugins/Waifu/", 0o777)
 
     async def initialize(self):
-        self._set_permissions_recursively("plugins/Waifu/water", 0o777)
+        # 为新用户创建配置文件
+        waifu_config = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu")
+        await waifu_config.load_config(completion=True)
 
     @handler(PersonNormalMessageReceived)
     async def person_normal_message_received(self, ctx: EventContext):
@@ -130,7 +133,7 @@ class Waifu(BasePlugin):
         self.configs[launcher_id] = WaifuConfig(self.host, launcher_id, launcher_type)
         config = self.configs[launcher_id]
 
-        waifu_config = ConfigManager(f"plugins/Waifu/water/config/waifu", "plugins/Waifu/water/templates/waifu", launcher_id)
+        waifu_config = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu", launcher_id)
         await waifu_config.load_config(completion=True)
 
         character = waifu_config.data.get("character", f"default")
@@ -163,7 +166,7 @@ class Waifu(BasePlugin):
         if config.jail_break_mode in ["before", "after"]:
             self._apply_jail_break(config, config.jail_break_mode)
 
-        self._set_permissions_recursively("plugins/Waifu/water", 0o777)
+        self._set_permissions_recursively("data/plugins/Waifu/", 0o777)
 
     async def _handle_command(self, ctx: EventContext) -> typing.Tuple[bool, bool]:
         need_assistant_reply = False
@@ -284,7 +287,7 @@ class Waifu(BasePlugin):
             return "没有正在运行的计时器。"
 
     def _ensure_required_files_exist(self):
-        directories = ["plugins/Waifu/water/cards", "plugins/Waifu/water/config", "plugins/Waifu/water/data"]
+        directories = ["data/plugins/Waifu/cards", "data/plugins/Waifu/config", "data/plugins/Waifu/data"]
 
         for directory in directories:
             if not os.path.exists(directory):
@@ -293,8 +296,8 @@ class Waifu(BasePlugin):
 
         files = ["jail_break_before.txt", "jail_break_after.txt", "tidy.py"]
         for file in files:
-            file_path = f"plugins/Waifu/water/config/{file}"
-            template_path = f"plugins/Waifu/water/templates/{file}"
+            file_path = f"data/plugins/Waifu/config/{file}"
+            template_path = f"plugins/Waifu/templates/{file}"
             if not os.path.exists(file_path) and os.path.exists(template_path):
                 # 如果配置文件不存在，并且提供了模板，则使用模板创建配置文件
                 shutil.copyfile(template_path, file_path)
@@ -702,7 +705,7 @@ class Waifu(BasePlugin):
             await self._delayed_person_reply(ctx)
 
     def _apply_jail_break(self, config, jail_break_type: str):
-        filepath = f"plugins/Waifu/water/config/jail_break_{jail_break_type}.txt"
+        filepath = f"data/plugins/Waifu/config/jail_break_{jail_break_type}.txt"
         jail_break = ""
         if os.path.exists(filepath):
             with open(filepath, "r", encoding="utf-8") as f:

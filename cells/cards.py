@@ -29,8 +29,8 @@ class Cards:
             self._has_preset = False
             return        
         self._has_preset = True
-        
-        config = ConfigManager(f"plugins/Waifu/water/cards/{character}", f"plugins/Waifu/water/templates/default_{launcher_type}")
+
+        config = ConfigManager(f"data/plugins/Waifu/cards/{character}", f"plugins/Waifu/templates/default_{launcher_type}")
         await config.load_config(completion=False)
         self._user_name = config.data.get("user_name", "用户")
         self._assistant_name = config.data.get("assistant_name", "助手")

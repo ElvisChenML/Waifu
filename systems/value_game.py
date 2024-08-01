@@ -28,10 +28,10 @@ class ValueGame:
             return        
         self._has_preset = True
 
-        self._status_file = f"plugins/Waifu/water/data/{character}_{launcher_id}.json"
+        self._status_file = f"data/plugins/Waifu/data/{character}_{launcher_id}.json"
 
-        character_config_path = f"plugins/Waifu/water/cards/{character}"
-        self._config = ConfigManager(character_config_path, f"plugins/Waifu/water/templates/default_{launcher_type}")
+        character_config_path = f"data/plugins/Waifu/cards/{character}"
+        self._config = ConfigManager(character_config_path, f"plugins/Waifu/templates/default_{launcher_type}")
         await self._config.load_config(completion=False)
 
         try:
