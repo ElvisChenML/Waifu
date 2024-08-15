@@ -38,6 +38,7 @@ class Thoughts:
         conversations = memory.short_term_memory
         _, conversations_str = memory.get_conversations_str_for_person(conversations)
         user_prompt = f"这是之前记录：“{conversations_str}”。"
+        analysis = ""
 
         last_speaker = memory.get_last_speaker(conversations)
         last_role = memory.get_last_role(conversations)
@@ -58,7 +59,7 @@ class Thoughts:
                 user_prompt += f"你要作为{memory.assistant_name}根据最后发生的事情“{last_content}”做出符合{memory.assistant_name}角色设定的回复。"
             else:
                 user_prompt += f"你要作为{memory.assistant_name}对{last_speaker}做出符合{memory.assistant_name}角色设定的回复。"
-        
+
         time = self._generator.get_chinese_current_time()
         user_prompt += f"确保回复时考虑到当前时间是{time}，并且应符合{memory.assistant_name}的角色设定。确保回复充分体现{memory.assistant_name}的性格特征和情感反应。"
         user_prompt += f"只提供{memory.assistant_name}的回复内容，不需要其他说明。"
@@ -125,6 +126,7 @@ class Thoughts:
         replied_conversations_str = memory.get_conversations_str_for_group(replied_conversations)
 
         user_prompt = ""
+        analysis = ""
         if replied_conversations_str:
             user_prompt += f"这是之前群聊消息记录“{replied_conversations_str}”，"
 
