@@ -18,8 +18,6 @@ class Cards:
         self._rules = []
         self._manner = ""
         self._memories = []
-        self._speaking = []
-        self._restrictions = []
         self._prologue = ""
         self._additional_keys = {}
         self._has_preset = True
@@ -42,12 +40,10 @@ class Cards:
         if launcher_type == "person":
             self._background.append(f"你是{self._assistant_name}，用户是{self._user_name}。")
         self._rules = config.data.get("Rules", [])
-        self._speaking = config.data.get("Speaking", [])
-        self._restrictions = config.data.get("Restrictions", [])
         self._prologue = config.data.get("Prologue", "")
 
         # Collect additional keys
-        predefined_keys = {"user_name", "assistant_name", "language", "Profile", "Skills", "Background", "Rules", "Speaking", "Restrictions", "Prologue", "max_manner_change", "value_descriptions"}
+        predefined_keys = {"user_name", "assistant_name", "language", "Profile", "Skills", "Background", "Rules", "Prologue", "max_manner_change", "value_descriptions"}
         self._additional_keys = {key: value for key, value in config.data.items() if key not in predefined_keys}
 
     def set_memory(self, memories: typing.List[str]):
@@ -61,9 +57,6 @@ class Cards:
 
     def get_profile(self) -> str:
         return self._list_to_prompt_str(self._profile)
-
-    def get_restrictions(self) -> str:
-        return self._list_to_prompt_str(self._restrictions)
 
     def get_manner(self) -> str:
         return self._manner
@@ -81,9 +74,6 @@ class Cards:
             init_parts.append(f"你必须用默认的{self._language}与我交谈。")
         return "".join(init_parts)
 
-    def get_speaking(self) -> str:
-        return self._list_to_prompt_str(self._speaking)
-
     def generate_system_prompt(self) -> str:
         sections = self._collect_prompt_sections()
         return self._assemble_prompt(sections)
@@ -91,11 +81,9 @@ class Cards:
     def _collect_prompt_sections(self) -> typing.List[typing.Tuple[str, typing.Any]]:
         sections = [
             ("Profile", self._profile),
-            ("Speaking Style", self._speaking),
             ("Skills", self._skills),
             ("Background", self._background),
             ("Memories", self._memories),
-            ("Restrictions", self._restrictions),
             ("Rules", self.get_rules()),
         ]
         # Add additional keys to sections

@@ -101,7 +101,7 @@ class Generator:
         return self._parse_json_list(cleaned_response, generate_tags)
 
     @handle_errors
-    async def return_json(self, question: str, system_prompt: str = None, generate_tags: bool = False) -> list:
+    async def return_json(self, question: str, system_prompt: str = None) -> list:
         model_info = await self.ap.model_mgr.get_model_by_name(self.ap.provider_cfg.data["model"])
         messages = self._get_question_prompts(question, output_format="JSON", system_prompt=system_prompt)
 
@@ -174,34 +174,17 @@ class Generator:
             cleaned_response = re.sub(pattern, "", response)
         else:
             cleaned_response = response
-        cleaned_response = self._remove_surrounding_quotes(cleaned_response)
+        cleaned_response = self._remove_all_quotes(cleaned_response)
         # 删除特定破甲字符串
         cleaned_response = cleaned_response.replace("<结束无效提示>", "")
 
         return cleaned_response
 
-    def _remove_surrounding_quotes(self, text: str) -> str:
+    def _remove_all_quotes(self, text: str) -> str:
         # 定义匹配中英文单双引号的正则表达式
-        pattern = r"^([\"“‘'`「])?(.*?)([\"”’'`」])?$"
-        # 检查字符串是否仅头尾有引号
-        match = re.match(pattern, text)
-        if match:
-            start_quote, content, end_quote = match.groups()
-            if start_quote and end_quote:
-                # 确保头尾引号匹配，并且中间内容不包含未配对的头尾引号
-                if start_quote in ('"', "“", "`", "「") and end_quote in ('"', "”", "`", "」") and content.count(start_quote) == content.count(end_quote):
-                    return content
-                elif start_quote in ("'", "‘", "’") and end_quote in ("'", "’", "‘") and content.count(start_quote) == content.count(end_quote):
-                    return content
-            elif start_quote:
-                # 如果只有起始引号而没有结束引号
-                if content.count(start_quote) == 0:
-                    return content
-            elif end_quote:
-                # 如果只有结束引号而没有起始引号
-                if content.count(end_quote) == 0:
-                    return content
-        return text
+        pattern = r"[\"“‘\'「”’」]"
+        # 使用正则表达式替换所有匹配的引号
+        return re.sub(pattern, "", text)
 
     def _parse_json_list(self, response: str, generate_tags: bool = False) -> list:
         try:

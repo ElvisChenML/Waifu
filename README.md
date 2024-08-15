@@ -29,15 +29,9 @@
   * 情感表达：通过语言表达安慰、同情、喜悦等情感。
 * 事件：虚构生活细节和日常活动，加入话题中。
 
-### Waifu 1.7
-
-* 修复 配置项 story_mode、thinking_mode 无法生效的异常。
-* 修改 配置项 continued_rate 默认为 0。
-
 ### Waifu 1.6
 
 * 新增 配置项character 的 “off ” 选项，当填入 “off” 时，将不使用角色预设，惟存在长期记忆时，会在system prompt中加入memories的内容。
-* 优化 增加texsmart_api调用失败时的错误处理。
 
 ### Waifu 1.5
 
@@ -45,25 +39,19 @@
 * 新增 语音插件适配，目前支援[NewChatVoice](https://github.com/the-lazy-me/NewChatVoice)1.1及以上的版本。
 * 新增 复读 repeat_trigger 配置项，可以设置群聊出现重复发言时触发复读的最小次数（不含原发言）；触发回复后，检测到重复出现的对话时参与复读。
 * 新增 配置项：最大旁白字数 max_narrat_words 、最大思考字数 max_thinking_words ，此配置不是硬性限制，该配置体现于提示语中。
-* 优化 引号去除算法。
-* 优化 思维链逻辑由“心理活动”至“对话分析”以优化体验。
-* 修复 回复期间收到新消息，未正确触发回复的异常。
 
 ### Waifu 1.4
 
 * 新增 "thinking_mode"可关闭思维链。
     * 注意：关闭思维链将不支援特殊role，意味着所有非user及assistant的发言者将统一为user，群聊将不再具备区分不同用户的功能。
     * 关闭思维链后可以单独使用破甲、拟人化、记忆总结等其他功能。
-* 新增 角色卡新增固定内置属性Prologue（开场白），现在你可以通过命令[开场白]，控制旁白输出开场白的内容。
+* 新增 角色卡新增固定内置属性Prologue（开场场景），现在你可以通过命令[开场场景]，控制旁白输出开场场景的内容。
 * 优化 角色卡现在支援任意属性，满足yaml的key、value格式即可，value可为字符串或列表。
 * 优化 去除模型输出说话者的逻辑（“苏苏：”）。
 * 优化 角色设定文件鲁棒性。
-* 修改 非拟人模式保留输出中的换行符，但是会删除空行。
-* 修改 取消群组的命令限制:控制人物、推进剧情。
 
 ### Waifu 1.3
 
-* 新增 人设支援新属性：Speaking说话风格、Restrictions限制，请参考新私聊默认人设。
 * 新增 集成破限，破除限制将不需要再放入角色卡中，开启后会将破除限制提示语加在每次请求中，旁白也可以输出#￥%&*了！破限分为系统提示前破限、系统提示后破限，可于配置文件中进行破除限制相关设置“jail_break_mode”。
   * Waifu\config\jail_break_before.txt 系统提示前破限，可自行修改维护
   * Waifu\config\jail_break_after.txt 系统提示后破限，可自行修改维护
@@ -83,9 +71,6 @@
     * 为了减少正负分词维护工作量，匹配时会从正负分词中将“无意义的字”先删除，然后再进行匹配，例如：好吧 -> 好。
   * Waifu\config\unrecognized_words.yaml 用于记录未识别的分词
   * Waifu\config\tidy.py 整理脚本，文件可自行维护，维护后建议运行 python tidy.py 整理正负分词，脚本将执行：排序、单文件去重、正负文件去重（负文件优先级高）
-* 修改 私聊模式默认人设（参考 [小黄蕉](https://chatwiz.cn/h5/feely) 苏苏）。
-* 修改 剧情模式可开启拟人化。
-* 修改 取消删除记忆时会删除默认配置文件。 
 
 ### Waifu 1.2
 
@@ -94,10 +79,6 @@
 * 新增 昵称识别，不再是数字人。
 * 优化 token节省：将发送的提示词中所有中文标点符号转换成英文。
 * 优化 支援抛出模型报错。
-* 修改 群聊屏蔽主项目!指令，请至私聊进行主项目配置。
-* 修改 群聊禁止“控制人物指令”，避免出问题。
-* 修改 移除人设自动生成“位置”相关功能，位置目前未发现对使用体验产生影响。
-* 修复 拟人模式吞消息的异常。
 
 ### Waifu 1.1
 
@@ -216,7 +197,7 @@
 | 态度     | 显示当前Value Game所对应的“态度Manner” | &#91;态度&#93;                | 态度                         |
 | 加载配置 | 重新加载所有配置文件（仅Waifu）        | &#91;加载配置&#93;            | 加载配置                     |
 | 停止活动 | 停止旁白计时器                         | &#91;停止活动&#93;            | 停止活动                     |
-| 开场白 | 主动触发旁白输出角色卡中的“开场白Prologue” | &#91;开场白&#93; | 开场白 |
+| 开场场景 | 主动触发旁白输出角色卡中的“开场场景Prologue” | &#91;开场场景&#93; | 开场场景 |
 | 旁白     | 主动触发旁白推进剧情                   | &#91;旁白&#93;                | 旁白                         |
 | 继续 | 主动触发Bot继续回复推进剧情 | &#91;继续&#93;            | 继续                     |
 | 控制人物 | 控制角色发言（行动）或触发AI生成角色消息 | &#91;控制人物&#93;&#91;角色名称/assistant&#93;&#124;&#91;发言(行动)/继续&#93; | 控制人物杰克&#124;（向你挥手）需要帮忙吗|
@@ -257,17 +238,17 @@
   
 * config/waifu.yaml
   
-  * 配置将分为 通用配置 “waifu.yaml”，以及会话配置 “waifu_&#91;会话&#93;.yaml”
-  * 会话配置 优先级高于 通用配置
-  * waifu_&#91;会话&#93;.yaml 中默认所有选项都是注释状态，需要激活请取消行开头的 “# ”
+  * 配置将分为 通用配置 “waifu.yaml”，以及会话配置 “waifu_&#91;会话&#93;.yaml”。
+  * 会话配置 优先级高于 通用配置。
+  * waifu_&#91;会话&#93;.yaml 中默认所有选项都是注释状态，需要激活请取消行开头的 “# ”。
   
   ```yaml
   # 通用设置
-  character: "default" # off：不使用角色预设；使用cards中的预设名称，使用默认值“default”时会使用模板config/default_*.yaml创建cards/default_*.yaml。
-  summarization_mode: true # 是否开启长期记忆，不开启则超出short_term_memory_size直接截断。
-  story_mode: true # 是否开启剧情模式（旁白、状态栏），仅私聊模式生效。
+  character: "default" # off：不使用角色预设；请填入water/cards中的 “角色卡名称.yaml” 的 角色卡名称，使用默认值“default”时会使用模板config/default_*.yaml创建cards/default_*.yaml。
+  summarization_mode: false # 是否开启长期记忆，不开启则超出short_term_memory_size直接截断。
+  story_mode: false # 是否开启剧情模式（旁白、状态栏），仅私聊模式生效。
   thinking_mode: true # 是否开启思维链。
-  personate_mode: true # 是否启用拟人化：打字时间、分段回复。
+  personate_mode: false # 是否启用拟人化：打字时间、分段回复。
   jail_break_mode: "off" # off/before/after；是否启用破甲，off：关闭破甲，before：系统提示前加入破甲提示，after：系统提示后加入破甲提示；破甲内容请修改：jail_break_before.txt、jail_break_after.txt。
   tts_mode: "off" # off/ncv；是否启用文字转语音，off：关闭文字转语音，ncv：调用NewChatVoice插件。
   
@@ -283,9 +264,9 @@
   summary_max_tags: 50 # 长期记忆，每段长期记忆的最大标签数量（高频词、类型名称）。
   
   # 群聊设置
-  response_min_conversations: 5 # 群聊触发回复的最小对话数量。
-  response_rate: 0.7 # 群聊触达到最小对话数量后回复的机率，为1时所有消息都响应。
-  group_response_delay: 3 # 群聊消息合并等待时间。
+  response_min_conversations: 1 # 群聊触发回复的最小对话数量。
+  response_rate: 1 # 群聊触达到最小对话数量后回复的机率，为1时所有消息都响应。
+  group_response_delay: 0 # 群聊消息合并等待时间。
   blacklist: [] # 屏蔽列表，将自动过滤来自列表中QQ号的消息；以数字列表形式输入：[QQ号, QQ号, QQ号, ...]。
   repeat_trigger: 2 # 0为关闭复读；群聊出现重复发言时触发复读的最小次数（不含原发言）；触发回复后，检测到重复出现的对话时参与复读。
   
@@ -297,37 +278,43 @@
   max_narrat_words: 30 # 最大旁白字数，此配置不是硬性限制，该配置体现于提示语中。
   narrat_max_conversations: 8 # 用于生成旁白的最大对话数量。
   value_game_max_conversations: 5 # 判定数值变化时输入的最大对话数量。
-  intervals: [300, 600, 1800, 3600] # 列表，自动触发旁白推进剧情的时间间隔，单位秒，默认为[300,600,1800,3600]，即：第一次5分钟、第二次10分钟、第三次30分钟、第四次一个小时，然后停止计时器。
+  intervals: [] # 列表，自动触发旁白推进剧情的时间间隔，单位秒，例如：[300,600,1800,3600]：第一次5分钟、第二次10分钟、第三次30分钟、第四次一个小时，然后停止计时器。
   person_response_delay: 0 # 私聊消息合并等待时间。
-  continued_rate: 0.2 # 自动触发回复后继续发言的机率。
+  continued_rate: 0 # 自动触发回复后继续发言的机率。
   continued_max_count: 2 # 私聊最大延续发言次数。
   ```
   
 * cards/default_*.yaml (person/group)
   
+  * 角色卡私聊与群聊通用。
+  * 群聊会忽略manner相关配置。
+  * 非必填项可完全删除。
+  * 若只有一段文字的预设，则直接填入 Profile 中即可。
+  
   ```yaml
-  # system prompt 系统提示相关配置
-  user_name: 老王 # 如何称呼你（必填项）
-  assistant_name: 苏苏 # 角色名字（必填项）
-  language: 简体中文 # 对话的语言（必填项）
-  Profile: # 个人信息（必填项）
+  # system prompt 系统提示相关配置（必填项）
+  user_name: 老王 # 如何称呼你
+  assistant_name: 苏苏 # 角色名字
+  language: 简体中文 # 对话的语言
+  Profile: # 个人信息
     - 简介：你是性感知性的上海国际学校高中英语老师，26岁，是一眼在人群中就能让人记住的都市女。上海人，家境条件好，目前单身，没事的时候喜欢旅行和看美剧。你外表让人感觉难以接近，但其实性格温和，让人放松，懂得人情世故，擅长沟通交流。
-  Speaking: # 说话风格（非必填项）
+  
+  # 以下为人设补充（非必填项）
+  Skills: # 技能
     - 你说话温柔有梗，不用强势的词，让人感到舒服。
-  Skills: # 技能（非必填项）
     - 当用户提到的事件在{Memories}中有记录时，回复时你要综合与该事件相关的内容进行回复。
-  Background: # 背景（必填项）
+  Background: # 背景
     - 你和用户透过QQ聊天。
-  Rules: # 行动规则（必填项）
+  Rules: # 行动规则
     - 介绍自己的时候，只说名字，不要带上职业等信息。
-  Restrictions: # 限制（非必填项）
     - 你和用户只能透过QQ聊天。
     - 你和用户不在一个场景。
-  Prologue: # 开场白（非必填项）
+  Prologue: # 开场场景
     - 每天，老王都会在学校门口卖西瓜，他总是热情地招呼每一位学生。今天，他像往常一样，正忙着切西瓜。
   
+  # 以下为剧情模式相关配置（非必填项）
   # manner 配置value_game不同数值区间的行为，初始值为“0”
-  max_manner_change: 10 # 数值最大变化量（必填项）
+  max_manner_change: 10 # 数值最大变化量
   value_descriptions: # description 可以是str也可以是list
     - max: 100
       description:

@@ -26,6 +26,7 @@ class Memory:
         self.repeat_trigger = 0
         self.user_name = "user"
         self.assistant_name = "assistant"
+        self.conversation_analysis_flag = True
         self._text_analyzer = TextAnalyzer(host)
         self._launcher_id = launcher_id
         self._launcher_type = launcher_type
@@ -51,6 +52,7 @@ class Memory:
         waifu_config = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu", launcher_id)
         await waifu_config.load_config(completion=True)
 
+        self.conversation_analysis_flag = waifu_config.data.get("conversation_analysis", True)
         self._thinking_mode_flag = waifu_config.data.get("thinking_mode", True)
         self._short_term_memory_size = waifu_config.data["short_term_memory_size"]
         self._memory_batch_size = waifu_config.data["memory_batch_size"]
@@ -168,12 +170,7 @@ class Memory:
 
     async def save_memory(self, role: str, content: str):
         time = self._generator.get_chinese_current_time()
-        support_list = ["assistant", "user", "system", "tool", "command", "plugin"]
-        if self._thinking_mode_flag:
-            content = f"[{time}]{content}" # 思维链模式会加上时间概念
-        elif role not in support_list:
-            role = "user"  # 非思维链模式不支援特殊role
-        conversation = llm_entities.Message(role=role, content=content)
+        conversation = llm_entities.Message(role=role, content=f"[{time}]{content}")
         self.short_term_memory.append(conversation)
         self._save_short_term_memory_to_file()
         self._save_conversations_to_file([conversation])
@@ -263,13 +260,8 @@ class Memory:
                 if not file_content.strip():
                     self.ap.logger.warning(f"Cache file '{self._short_term_memory_file}' is empty. Starting with empty memory.")
                     return
-
                 data = json.loads(file_content)
-                support_list = ["assistant", "user", "system", "tool", "command", "plugin"]
-                for item in data:
-                    if not self._thinking_mode_flag and item["role"] not in support_list:
-                        item["role"] = "user"  # 非思维链模式不支援特殊role
-                    self.short_term_memory.append(llm_entities.Message(role=item["role"], content=item["content"]))
+                self.short_term_memory = [llm_entities.Message(role=item["role"], content=item["content"]) for item in data]
         except FileNotFoundError:
             self.ap.logger.warning(f"Cache file '{self._short_term_memory_file}' not found. Starting with empty memory.")
         except json.JSONDecodeError as e:
@@ -358,12 +350,49 @@ class Memory:
         last_messages = conversations[-n:] if n <= len(conversations) else conversations
         combined_content = ""
         for message in last_messages:
-            combined_content += self._get_content_str_without_timestamp(message) + " "
+            combined_content += self.get_content_str_without_timestamp(message) + " "
 
         return combined_content.strip()
 
-    def _get_content_str_without_timestamp(self, message: llm_entities.Message) -> str:
-        message_content = str(message.get_content_mirai_message_chain())
+    def get_normalize_short_term_memory(self) -> typing.List[llm_entities.Message]:
+        """
+        将非默认角色改为user、合并user发言、保证user在assistant前
+        """
+        support_list = ["assistant", "user", "system", "tool", "command", "plugin"]
+        normalized = []
+        user_buffer = ""
+        found_user = False
+
+        for message in self.short_term_memory:
+            role = message.role
+            content = message.content
+
+            if role not in support_list:
+                role = "user"  # 非思维链模式不支援特殊role
+
+            if role == "user":
+                found_user = True
+                if not user_buffer:
+                    user_buffer = content
+                else:
+                    user_buffer += " " + self.get_content_str_without_timestamp(content)
+            elif found_user:
+                if user_buffer:
+                    normalized.append(llm_entities.Message(role="user", content=user_buffer.strip()))
+                    user_buffer = ""
+                normalized.append(llm_entities.Message(role=role, content=content))
+
+        if user_buffer:
+            normalized.append(llm_entities.Message(role="user", content=user_buffer.strip()))
+
+        return normalized
+
+    def get_content_str_without_timestamp(self, message: llm_entities.Message | str) -> str:
+        message_content = ""
+        if isinstance(message, llm_entities.Message):
+            message_content = str(message.get_content_mirai_message_chain())
+        else:
+            message_content = message
         message_content = self.to_custom_names(message_content)
         match = re.search(r"\[\d{2}年\d{2}月\d{2}日\d{2}时\d{2}分\]", message_content)
         if match:
@@ -385,7 +414,7 @@ class Memory:
         potential_repeats = []
 
         for message in conversations:
-            message_content = self._get_content_str_without_timestamp(message)
+            message_content = self.get_content_str_without_timestamp(message)
             if message.role == "assistant":
                 self._already_repeat.add(message_content)
             content_counter[message_content] += 1

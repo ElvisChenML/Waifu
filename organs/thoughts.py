@@ -36,10 +36,6 @@ class Thoughts:
 
     async def generate_person_prompt(self, memory: Memory, card: Cards) -> typing.Tuple[str, str]:
         conversations = memory.short_term_memory
-        profile = memory.to_custom_names(card.get_profile())
-        background = memory.to_custom_names(card.get_background())
-        manner = memory.to_custom_names(card.get_manner())
-        analysis = await self._analyze_person_conversations(memory, profile, background, manner)
         _, conversations_str = memory.get_conversations_str_for_person(conversations)
         user_prompt = f"这是之前记录：“{conversations_str}”。"
 
@@ -47,10 +43,22 @@ class Thoughts:
         last_role = memory.get_last_role(conversations)
         last_content = memory.get_last_content(conversations)
 
-        if last_role == "narrator":
-            user_prompt += f"你要作为{memory.assistant_name}根据最后发生的事情“{last_content}”参考分析结果“{analysis}”对{last_speaker}做出符合{memory.assistant_name}角色设定的回复。"
+        if memory.conversation_analysis_flag:
+            profile = memory.to_custom_names(card.get_profile())
+            background = memory.to_custom_names(card.get_background())
+            manner = memory.to_custom_names(card.get_manner())
+            analysis = await self._analyze_person_conversations(memory, profile, background, manner)
+
+            if last_role == "narrator":
+                user_prompt += f"你要作为{memory.assistant_name}根据最后发生的事情“{last_content}”参考分析结果“{analysis}”对{last_speaker}做出符合{memory.assistant_name}角色设定的回复。"
+            else:
+                user_prompt += f"你要作为{memory.assistant_name}参考分析结果“{analysis}”对{last_speaker}做出符合{memory.assistant_name}角色设定的回复。"
         else:
-            user_prompt += f"你要作为{memory.assistant_name}参考分析结果“{analysis}”对{last_speaker}做出符合{memory.assistant_name}角色设定的回复。"
+            if last_role == "narrator":
+                user_prompt += f"你要作为{memory.assistant_name}根据最后发生的事情“{last_content}”做出符合{memory.assistant_name}角色设定的回复。"
+            else:
+                user_prompt += f"你要作为{memory.assistant_name}对{last_speaker}做出符合{memory.assistant_name}角色设定的回复。"
+        
         time = self._generator.get_chinese_current_time()
         user_prompt += f"确保回复时考虑到当前时间是{time}，并且应符合{memory.assistant_name}的角色设定。确保回复充分体现{memory.assistant_name}的性格特征和情感反应。"
         user_prompt += f"只提供{memory.assistant_name}的回复内容，不需要其他说明。"
@@ -113,17 +121,21 @@ class Thoughts:
         count, unreplied_conversations = memory.get_unreplied_msg(unreplied_count)
         replied_conversations = conversations[:-count]
 
-        profile = memory.to_custom_names(card.get_profile())
-        background = memory.to_custom_names(card.get_background())
-
         unreplied_conversations_str = memory.get_conversations_str_for_group(unreplied_conversations)
         replied_conversations_str = memory.get_conversations_str_for_group(replied_conversations)
 
-        analysis = await self._analyze_group_conversations(memory, profile, background)
         user_prompt = ""
         if replied_conversations_str:
             user_prompt += f"这是之前群聊消息记录“{replied_conversations_str}”，"
-        user_prompt += f"这是未回复的群聊消息记录“{unreplied_conversations_str}”。消息格式为群友昵称说：“”。你要作为{memory.assistant_name}参考群聊消息记录分析结果“{analysis}”对未回复的群聊消息记录做出符合{memory.assistant_name}角色设定的回复。确保回复充分体现{memory.assistant_name}的性格特征和情感反应。"
+
+        if memory.conversation_analysis_flag:
+            profile = memory.to_custom_names(card.get_profile())
+            background = memory.to_custom_names(card.get_background())
+            analysis = await self._analyze_group_conversations(memory, profile, background)
+            user_prompt += f"这是未回复的群聊消息记录“{unreplied_conversations_str}”。消息格式为群友昵称说：“”。你要作为{memory.assistant_name}参考群聊消息记录分析结果“{analysis}”对未回复的群聊消息记录做出符合{memory.assistant_name}角色设定的回复。确保回复充分体现{memory.assistant_name}的性格特征和情感反应。"
+        else:
+            user_prompt += f"这是未回复的群聊消息记录“{unreplied_conversations_str}”。消息格式为群友昵称说：“”。你要作为{memory.assistant_name}对未回复的群聊消息记录做出符合{memory.assistant_name}角色设定的回复。确保回复充分体现{memory.assistant_name}的性格特征和情感反应。"
+
         user_prompt += f"不称呼群友昵称，使用你或你们代指群友。只提供{memory.assistant_name}的回复内容，不需要消息记录格式。"
 
         return user_prompt, analysis

@@ -1,13 +1,14 @@
 # 通用设置
-character: "default" # off：不使用角色预设；使用cards中的预设名称，使用默认值“default”时会使用模板config/default_*.yaml创建cards/default_*.yaml。
+character: "default" # off：不使用角色预设；请填入water/cards中的 “角色卡名称.yaml” 的 角色卡名称，使用默认值“default”时会使用模板config/default_*.yaml创建cards/default_*.yaml。
 summarization_mode: false # 是否开启长期记忆，不开启则超出short_term_memory_size直接截断。
 story_mode: false # 是否开启剧情模式（旁白、状态栏），仅私聊模式生效。
-thinking_mode: true # 是否开启思维链。
+thinking_mode: true # 是否开启思维链。开启后模型将具备：更高的拟人化程度、区分不同群用户发言。注意：思维链会在一定程度上影响模型回复。
 personate_mode: false # 是否启用拟人化：打字时间、分段回复。
 jail_break_mode: "off" # off/before/after；是否启用破甲，off：关闭破甲，before：系统提示前加入破甲提示，after：系统提示后加入破甲提示；破甲内容请修改：jail_break_before.txt、jail_break_after.txt。
 tts_mode: "off" # off/ncv；是否启用文字转语音，off：关闭文字转语音，ncv：调用NewChatVoice插件。
 
 # 思考模块
+conversation_analysis: False # 是否启用场景分析。分析可以更好的理解会话场景，但有可能造成无法回答专业问题的负面效果。
 display_thinking: false # 是否显示内心活动。
 analyze_max_conversations: 9 # 用于生成分析的最大对话数量。
 max_thinking_words: 30 # 最大思考字数，此配置不是硬性限制，该配置体现于提示语中。

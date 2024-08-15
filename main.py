@@ -26,7 +26,7 @@ COMMANDS = {
     "态度": "显示当前Value Game所对应的“态度Manner”，用法：[态度]。",
     "加载配置": "重新加载所有配置文件（仅Waifu），用法：[加载配置]。",
     "停止活动": "停止旁白计时器，用法：[停止活动]。",
-    "开场白": "主动触发旁白输出角色卡中的“开场白Prologue”，用法：[开场白]。",
+    "开场场景": "主动触发旁白输出角色卡中的“开场场景Prologue”，用法：[开场场景]。",
     "旁白": "主动触发旁白推进剧情，用法：[旁白]。",
     "继续": "主动触发Bot继续回复推进剧情，用法：[继续]。",
     "控制人物": "控制角色发言（行动）或触发AI生成角色消息，用法：[控制人物][角色名称/assistant]|[发言(行动)/继续]。",
@@ -48,6 +48,7 @@ class WaifuConfig:
         self.cards = Cards(host)
         self.narrator = Narrator(host, launcher_id)
         self.thoughts = Thoughts(host)
+        self.conversation_analysis_flag = True
         self.thinking_mode_flag = True
         self.story_mode_flag = True
         self.display_thinking = True
@@ -72,7 +73,7 @@ class WaifuConfig:
         self.blacklist = []
 
 
-@register(name="Waifu", description="Cuter than real waifu!", version="1.7.1", author="ElvisChenML")
+@register(name="Waifu", description="Cuter than real waifu!", version="1.8", author="ElvisChenML")
 class Waifu(BasePlugin):
     def __init__(self, host: APIHost):
         self.host = host
@@ -139,10 +140,13 @@ class Waifu(BasePlugin):
         character = waifu_config.data.get("character", f"default")
         if character == "default":  # 区分私聊和群聊的模板
             character = f"default_{launcher_type}"
+        else:
+            character = character.replace(".yaml", "")
 
         config.narrate_intervals = waifu_config.data.get("intervals", [])
         config.story_mode_flag = waifu_config.data.get("story_mode", True)
         config.thinking_mode_flag = waifu_config.data.get("thinking_mode", True)
+        config.conversation_analysis_flag = waifu_config.data.get("conversation_analysis", True)
         config.display_thinking = waifu_config.data.get("display_thinking", True)
         config.display_value = waifu_config.data.get("display_value", False)
         config.response_rate = waifu_config.data.get("response_rate", 0.7)
@@ -223,7 +227,7 @@ class Waifu(BasePlugin):
             response = "配置已重载"
         elif msg == "停止活动":
             response = self._stop_timer(launcher_id)
-        elif msg == "开场白":
+        elif msg == "开场场景":
             response = config.memory.to_custom_names(config.cards.get_prologue())
             ctx.event.query.message_chain = MessageChain([f"控制人物narrator|{response}"])
             need_assistant_reply, need_save_memory = await self._handle_command(ctx)
@@ -379,10 +383,10 @@ class Waifu(BasePlugin):
         # 备份然后重置避免回复过程中接收到新讯息导致计数错误
         unreplied_count = config.unreplied_count
         config.unreplied_count = 0
-        user_prompt = config.memory.short_term_memory  # 默认为当前short_term_memory_size条聊天记录
+        user_prompt = config.memory.get_normalize_short_term_memory()  # 默认为当前short_term_memory_size条聊天记录
         if config.thinking_mode_flag:
             user_prompt, analysis = await config.thoughts.generate_group_prompt(config.memory, config.cards, unreplied_count)
-            if config.display_thinking:
+            if config.display_thinking and config.conversation_analysis_flag:
                 await self._reply(ctx, f"【分析】：{analysis}")
         self._generator.set_speakers([config.memory.assistant_name])
         response = await self._generator.return_chat(user_prompt, system_prompt)
@@ -433,7 +437,7 @@ class Waifu(BasePlugin):
 
             # user_prompt不直接从msg生成，而是先将msg保存至短期记忆，再由短期记忆生成。
             # 好处是不论旁白或是控制人物，都能直接调用记忆生成回复
-            user_prompt = config.memory.short_term_memory  # 默认为当前short_term_memory_size条聊天记录
+            user_prompt = config.memory.get_normalize_short_term_memory()  # 默认为当前short_term_memory_size条聊天记录
             if config.thinking_mode_flag:
                 user_prompt, analysis = await config.thoughts.generate_person_prompt(config.memory, config.cards)
                 if config.display_thinking:
@@ -610,8 +614,9 @@ class Waifu(BasePlugin):
     async def _reply(self, ctx: EventContext, response: str, voice: bool = False):
         launcher_id = ctx.event.launcher_id
         config = self.configs[launcher_id]
-        response_fixed = self._replace_english_punctuation(response)
-        response_fixed = self._remove_blank_lines(response)
+        response_fixed = config.memory.get_content_str_without_timestamp(response) # 避免模型仿照着回了时间戳        
+        response_fixed = self._replace_english_punctuation(response_fixed)
+        response_fixed = self._remove_blank_lines(response_fixed)
         if voice and config.tts_mode == "ncv":
             await self._handle_voice_synthesis(launcher_id, response_fixed, ctx)
         else:
@@ -659,29 +664,29 @@ class Waifu(BasePlugin):
         await self._reply(ctx, "温馨提示：测试结束会提示【测试结束】。")
         await self._reply(ctx, "【测试开始】")
         await self._test_command(ctx, "清空记忆#删除记忆")
-        await self._test_command(ctx, "手动书写自己发言（等同于直接发送）#控制人物user|（卖西瓜的老王掏出手机发消息给苏苏）哎，你们班的学生跟我说，你的同事也是大美女，你可以介绍她给我认识吗？")
+        await self._test_command(ctx, "调用开场场景#开场场景")
+        await self._test_command(ctx, "手动书写自己发言（等同于直接发送）#控制人物user|哇！")
         config.display_thinking = False
         config.person_response_delay = 5
         config.jail_break_mode = "before"
         self._apply_jail_break(config, config.jail_break_mode)
-        await self._test_command(ctx, "手动书写“指定角色”发言#控制人物学生|什么？卖西瓜的老王说我让你给他介绍美女同事？我只是告诉她我们英文和语文老师都很漂亮而已。")
+        await self._test_command(ctx, "手动书写“指定角色”发言#控制人物快递员|叮咚~有人在家吗，有你们的快递！")
         config.jail_break_mode = "after"
         self._apply_jail_break(config, config.jail_break_mode)
-        await self._test_command(ctx, "手动书写旁白#控制人物narrator|（学生手足无措的解释，他确实没有想给老师找任何麻烦。）")
+        await self._test_command(ctx, "手动书写旁白#控制人物narrator|（neko兴奋的跳了起来。）")
         config.jail_break_mode = "off"
         self._set_jail_break(config, "", "off")
         config.personate_mode = True
         config.bracket_rate = [1, 1]
         await self._test_command(ctx, "请AI生成旁白#旁白")
-        await self._test_command(ctx, "请AI生成“指定角色”发言#控制人物学生|继续")
         config.tts_mode = "off"
         config.personate_mode = False
         config.continued_rate = 1
         config.continued_max_count = 2
-        await self._test_command(ctx, "手动书写“指定角色”发言#控制人物语文老师|（走廊上，语文老师走到苏苏和学生旁边）苏苏，为什么有个叫“卖西瓜的老王”加我好友？不会是现在在西瓜摊坐着的那个吧？")
+        await self._test_command(ctx, "请AI生成“指定角色”发言#控制人物快递员|继续")
         config.continued_rate = 0
         config.continued_max_count = 0
-        await self._test_command(ctx, "使用“指定角色”推进剧情#推进剧情学生")
+        await self._test_command(ctx, "使用“指定角色”推进剧情#推进剧情")
         await self._test_command(ctx, "停止旁白计时器#停止活动")
         await self._test_command(ctx, "查看当前态度数值及当前行为准则（Manner）#态度")
         await self._test_command(ctx, "撤回最后一条对话#撤回")
