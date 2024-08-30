@@ -46,8 +46,12 @@ class Generator:
             "output_format": output_format,
         }
 
-        task_json = json.dumps(task, ensure_ascii=False)
-        messages.append(llm_entities.Message(role="user", content=task_json.strip()))
+        user_prompt = json.dumps(task, ensure_ascii=False).strip()
+        if self._jail_break and self._jail_break_type == "end":
+            user_prompt += self._jail_break
+
+        messages.append(llm_entities.Message(role="user", content=user_prompt))
+
         return self._save_token(messages)
 
     def _get_chat_prompts(self, user_prompt: str | list[llm_entities.ContentElement], system_prompt: str = None) -> typing.List[llm_entities.Message]:
@@ -58,6 +62,11 @@ class Generator:
             messages.append(llm_entities.Message(role="system", content=system_prompt))
         if self._jail_break and self._jail_break_type == "after":
             messages.append(llm_entities.Message(role="system", content=self._jail_break))
+        if self._jail_break and self._jail_break_type == "end":
+            if isinstance(user_prompt, str):
+                user_prompt += self._jail_break
+            elif isinstance(user_prompt, list):
+                user_prompt.append(llm_entities.ContentElement(role="user", content=self._jail_break))
         if isinstance(user_prompt, list):
             messages.extend(user_prompt)
         else:
@@ -264,7 +273,11 @@ class Generator:
 
     def get_chinese_current_time(self):
         current_time = datetime.now()
-        chinese_time = current_time.strftime("%y年%m月%d日%H时%M分")
+        hour = current_time.hour
+        period = "上午"
+        if hour >= 12:
+            period = "下午"
+        chinese_time = current_time.strftime(f"%y年%m月%d日{period}%H时%M分")
         return chinese_time
 
     def set_jail_break(self, jail_break: str, type: str):

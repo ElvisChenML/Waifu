@@ -73,7 +73,7 @@ class WaifuConfig:
         self.blacklist = []
 
 
-@register(name="Waifu", description="Cuter than real waifu!", version="1.8", author="ElvisChenML")
+@register(name="Waifu", description="Cuter than real waifu!", version="1.8.1", author="ElvisChenML")
 class Waifu(BasePlugin):
     def __init__(self, host: APIHost):
         self.host = host
@@ -167,7 +167,7 @@ class Waifu(BasePlugin):
         await config.narrator.load_config()
 
         self._set_jail_break(config, "", "off")
-        if config.jail_break_mode in ["before", "after"]:
+        if config.jail_break_mode in ["before", "after", "end"]:
             self._apply_jail_break(config, config.jail_break_mode)
 
         self._set_permissions_recursively("data/plugins/Waifu/", 0o777)
@@ -298,7 +298,7 @@ class Waifu(BasePlugin):
                 os.makedirs(directory)
                 self.ap.logger.info(f"Directory created: {directory}")
 
-        files = ["jail_break_before.txt", "jail_break_after.txt", "tidy.py"]
+        files = ["jail_break_before.txt", "jail_break_after.txt", "jail_break_end.txt", "tidy.py"]
         for file in files:
             file_path = f"data/plugins/Waifu/config/{file}"
             template_path = f"plugins/Waifu/templates/{file}"
@@ -525,7 +525,7 @@ class Waifu(BasePlugin):
 
     async def _send_personate_reply(self, ctx: EventContext, response: str):
         config = self.configs[ctx.event.launcher_id]
-        parts = re.split(r"([，。？！,.?!\n~])", response)  # 保留分隔符
+        parts = re.split(r"([，。？！,.?!\n~〜])", response)  # 保留分隔符
         combined_parts = []
         temp_part = ""
 
@@ -533,9 +533,9 @@ class Waifu(BasePlugin):
             part = part.strip()
             if not part:
                 continue
-            if part in ["，", "。", ",", ".", "\n"]:  # 跳过标点符号
+            if part in ["，", "。", ",", ".", "\n"]:  # 删除的标点符号
                 continue
-            elif part in ["？", "！", "?", "!", "~"]:  # 保留？、！、~
+            elif part in ["？", "！", "?", "!", "~", "〜"]:  # 保留的标点符号
                 if combined_parts:
                     combined_parts[-1] += part
                 else:

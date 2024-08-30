@@ -273,7 +273,7 @@ class Memory:
         speakers = []
         conversations_str = ""
         listener = self.assistant_name
-        date_time_pattern = re.compile(r"\[\d{2}年\d{2}月\d{2}日\d{2}时\d{2}分\]")
+        date_time_pattern = re.compile(r"\[\d{2}年\d{2}月\d{2}日(上午|下午)?\d{2}时\d{2}分\]")
 
         for message in conversations:
             role = self.to_custom_names(message.role)
@@ -303,7 +303,7 @@ class Memory:
 
     def get_conversations_str_for_group(self, conversations: typing.List[llm_entities.Message]) -> str:
         conversations_str = ""
-        date_time_pattern = re.compile(r"\[\d{2}年\d{2}月\d{2}日\d{2}时\d{2}分\]")
+        date_time_pattern = re.compile(r"\[\d{2}年\d{2}月\d{2}日(上午|下午)?\d{2}时\d{2}分\]")
 
         for message in conversations:
             role = message.role
@@ -394,7 +394,7 @@ class Memory:
         else:
             message_content = message
         message_content = self.to_custom_names(message_content)
-        match = re.search(r"\[\d{2}年\d{2}月\d{2}日\d{2}时\d{2}分\]", message_content)
+        match = re.search(r"\[\d{2}年\d{2}月\d{2}日(上午|下午)?\d{2}时\d{2}分\]", message_content)
         if match:
             # 获取匹配到的时间戳后的内容
             content_after_timestamp = message_content[match.end() :].strip()
