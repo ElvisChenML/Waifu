@@ -73,7 +73,7 @@ class WaifuConfig:
         self.blacklist = []
 
 
-@register(name="Waifu", description="Cuter than real waifu!", version="1.8.1", author="ElvisChenML")
+@register(name="Waifu", description="Cuter than real waifu!", version="1.8.2", author="ElvisChenML")
 class Waifu(BasePlugin):
     def __init__(self, host: APIHost):
         self.host = host
@@ -536,10 +536,10 @@ class Waifu(BasePlugin):
             if part in ["，", "。", ",", ".", "\n"]:  # 删除的标点符号
                 continue
             elif part in ["？", "！", "?", "!", "~", "〜"]:  # 保留的标点符号
-                if combined_parts:
-                    combined_parts[-1] += part
-                else:
+                if temp_part or not combined_parts:
                     temp_part += part
+                else:
+                    combined_parts[-1] += part                    
             else:
                 temp_part += " " + part
                 if len(temp_part) >= 3:

@@ -54,7 +54,7 @@ class Generator:
 
         return self._save_token(messages)
 
-    def _get_chat_prompts(self, user_prompt: str | list[llm_entities.ContentElement], system_prompt: str = None) -> typing.List[llm_entities.Message]:
+    def _get_chat_prompts(self, user_prompt: str | typing.List[llm_entities.Message], system_prompt: str = None) -> typing.List[llm_entities.Message]:
         messages = []
         if self._jail_break and self._jail_break_type == "before":
             messages.append(llm_entities.Message(role="system", content=self._jail_break))
@@ -63,10 +63,10 @@ class Generator:
         if self._jail_break and self._jail_break_type == "after":
             messages.append(llm_entities.Message(role="system", content=self._jail_break))
         if self._jail_break and self._jail_break_type == "end":
-            if isinstance(user_prompt, str):
+            if isinstance(user_prompt, list):
+                user_prompt[-1].content += self._jail_break
+            else:
                 user_prompt += self._jail_break
-            elif isinstance(user_prompt, list):
-                user_prompt.append(llm_entities.ContentElement(role="user", content=self._jail_break))
         if isinstance(user_prompt, list):
             messages.extend(user_prompt)
         else:
@@ -163,7 +163,7 @@ class Generator:
         return cleaned_response
 
     @handle_errors
-    async def return_chat(self, request: str | list[llm_entities.ContentElement], system_prompt: str = None) -> str:
+    async def return_chat(self, request: str | typing.List[llm_entities.Message], system_prompt: str = None) -> str:
         model_info = await self.ap.model_mgr.get_model_by_name(self.ap.provider_cfg.data["model"])
         messages = self._get_chat_prompts(request, system_prompt)
 
