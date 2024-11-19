@@ -73,7 +73,7 @@ class WaifuConfig:
         self.blacklist = []
 
 
-@register(name="Waifu", description="Cuter than real waifu!", version="1.8.2", author="ElvisChenML")
+@register(name="Waifu", description="Cuter than real waifu!", version="1.8.3", author="ElvisChenML")
 class Waifu(BasePlugin):
     def __init__(self, host: APIHost):
         self.host = host
@@ -602,10 +602,6 @@ class Waifu(BasePlugin):
         else:
             return await self.configs[ctx.event.launcher_id].thoughts.analyze_picture(content_list)
 
-    def _replace_english_punctuation(self, text: str) -> str:
-        translation_table = str.maketrans({",": "，", ".": "。", "?": "？", "!": "！", ":": "：", ";": "；", "(": "（", ")": "）"})
-        return text.translate(translation_table).strip()
-
     def _remove_blank_lines(self, text: str) -> str:
         lines = text.split("\n")
         non_blank_lines = [line for line in lines if line.strip() != ""]
@@ -615,7 +611,6 @@ class Waifu(BasePlugin):
         launcher_id = ctx.event.launcher_id
         config = self.configs[launcher_id]
         response_fixed = config.memory.get_content_str_without_timestamp(response) # 避免模型仿照着回了时间戳        
-        response_fixed = self._replace_english_punctuation(response_fixed)
         response_fixed = self._remove_blank_lines(response_fixed)
         if voice and config.tts_mode == "ncv":
             await self._handle_voice_synthesis(launcher_id, response_fixed, ctx)

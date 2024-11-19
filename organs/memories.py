@@ -121,7 +121,8 @@ class Memory:
     async def _tag_and_add_conversations(self):
         if self.short_term_memory:
             summary, tags = await self._tag_conversations(self.short_term_memory[: self._memory_batch_size])
-            self.short_term_memory = self.short_term_memory[self._memory_batch_size :]
+            if len(self.short_term_memory) > self._memory_batch_size:
+                self.short_term_memory = self.short_term_memory[self._memory_batch_size :]
             self._add_long_term_memory(summary, tags)
             self._save_long_term_memory_to_file()
             self._save_short_term_memory_to_file()
@@ -183,7 +184,7 @@ class Memory:
 
     async def remove_last_memory(self) -> str:
         if self.short_term_memory:
-            last_conversation = self.short_term_memory.pop().get_content_mirai_message_chain()
+            last_conversation = self.short_term_memory.pop().get_content_platform_message_chain()
             self._save_short_term_memory_to_file()
             return last_conversation
 
@@ -277,7 +278,7 @@ class Memory:
 
         for message in conversations:
             role = self.to_custom_names(message.role)
-            content = str(message.get_content_mirai_message_chain())
+            content = str(message.get_content_platform_message_chain())
 
             # 提取并移除日期时间信息
             date_time_match = date_time_pattern.search(content)
@@ -310,7 +311,7 @@ class Memory:
             if role == "assistant":
                 role = "你"
 
-            content = str(message.get_content_mirai_message_chain())
+            content = str(message.get_content_platform_message_chain())
             date_time_match = date_time_pattern.search(content)
 
             if date_time_match:
@@ -390,7 +391,7 @@ class Memory:
     def get_content_str_without_timestamp(self, message: llm_entities.Message | str) -> str:
         message_content = ""
         if isinstance(message, llm_entities.Message):
-            message_content = str(message.get_content_mirai_message_chain())
+            message_content = str(message.get_content_platform_message_chain())
         else:
             message_content = message
         message_content = self.to_custom_names(message_content)

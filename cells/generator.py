@@ -52,7 +52,7 @@ class Generator:
 
         messages.append(llm_entities.Message(role="user", content=user_prompt))
 
-        return self._save_token(messages)
+        return messages
 
     def _get_chat_prompts(self, user_prompt: str | typing.List[llm_entities.Message], system_prompt: str = None) -> typing.List[llm_entities.Message]:
         messages = []
@@ -72,14 +72,14 @@ class Generator:
         else:
             messages.append(llm_entities.Message(role="user", content=user_prompt))
 
-        return self._save_token(messages)
+        return messages
 
     def _get_image_prompts(self, content_list: list[llm_entities.ContentElement], system_prompt: str = None) -> typing.List[llm_entities.Message]:
         messages = []
         if system_prompt:
             messages.append(llm_entities.Message(role="system", content=system_prompt))
         messages.append(llm_entities.Message(role="user", content=content_list))
-        return self._save_token(messages)
+        return messages
 
     @handle_errors
     async def select_from_list(self, question: str, options: list, system_prompt: str = None) -> str:
@@ -239,34 +239,6 @@ class Generator:
 
     def _is_balanced(self, string: str, open_char: str, close_char: str) -> bool:
         return string.count(open_char) == string.count(close_char)
-
-    def _save_token(self, messages: typing.List[llm_entities.Message]) -> typing.List[llm_entities.Message]:
-        punctuation_map = {"，": ",", "。": ".", "“": '"', "”": '"', "？": "?", "！": "!", "《": "<", "》": ">", "、": ","}
-
-        def replace_punctuation(text: str) -> str:
-            for cn, en in punctuation_map.items():
-                text = text.replace(cn, en)
-            return text
-
-        new_messages = []
-
-        for message in messages:
-            if isinstance(message.content, list):
-                new_content = []
-                for elem in message.content:
-                    if elem.type == "text" and elem.text:
-                        new_text = replace_punctuation(elem.text)
-                        new_elem = llm_entities.ContentElement.from_text(new_text)
-                    else:
-                        new_elem = elem
-                    new_content.append(new_elem)
-                new_message = llm_entities.Message(role=message.role, content=new_content)
-                new_messages.append(new_message)
-            else:
-                new_message = llm_entities.Message(role=message.role, content=replace_punctuation(message.content))
-                new_messages.append(new_message)
-
-        return new_messages
 
     def messages_to_readable_str(self, messages: typing.List[llm_entities.Message]) -> str:
         return "\n".join(message.readable_str() for message in messages)
