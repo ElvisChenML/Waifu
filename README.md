@@ -323,6 +323,40 @@
       description:
         - 互动行为：你对用户产生了强烈的爱慕之情，我们进入了暧昧阶段。互动中表现出更多的情感投入和对用户的依赖，言语间透露出温柔和深情。
   ```
+### 角色卡
+与角色卡相关的目录主要有两个
+1. `plugins\Waifu\templates\`
+此目录存放模板文件,在`data\plugins\Waifu\`下的文件都以此目录下的文件为模板生成.
+2. `data\plugins\Waifu\`
+├─cards
+├─config
+└─data
+`cards` 用来存放角色卡
+`config`存放配置文件
+`data`存放对话记录
+ 
+
+#### 自定义角色卡
+##### 1. 编写角色卡
+仿照`plugins\Waifu\templates\default_person.yaml`编写自定义的角色卡,这里假设写了`example.yaml`角色卡.
+##### 2. 放置角色卡
+将`example.yaml`移至`data\plugins\Waifu\cards`目录下
+##### 3. 使用角色卡
+- 更改默认的角色卡(默认的角色卡对所有人都起作用):<br>
+打开`data\plugins\Waifu\config`下的`waifu.yaml`文件,将`character: "default"`改为`character: "example"`
+
+
+启动即可生效
+
+- 更改针对具体用户或群聊的角色卡
+打开`data\plugins\Waifu\config`<br>
+在某个用户或群聊已经对机器人有过对话后,会生成`waifu_{user_qq号}.yaml`文件.
+这里假设产生了`waifu_1234567.yaml`文件.
+打开此文件,将`character: "default"`更改为`character: "example"`
+
+启动即可生效.
+
+*** 
 
 ## 协助开发
 
