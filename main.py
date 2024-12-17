@@ -87,7 +87,7 @@ class WaifuRunner(runner.RequestRunner):
         return
 
 
-@register(name="Waifu", description="Cuter than real waifu!", version="1.9.0", author="ElvisChenML")
+@register(name="Waifu", description="Cuter than real waifu!", version="1.9.1", author="ElvisChenML")
 class Waifu(BasePlugin):
 
     def __init__(self, host: APIHost):
@@ -107,45 +107,67 @@ class Waifu(BasePlugin):
     # async def normal_message_responded(self, ctx: EventContext):
     #     self.ap.logger.info(f"LangGPT的NormalMessageResponded: {str(ctx.event.response_text)}。")
 
-    @handler(PersonMessageReceived)
-    async def person_message_received(self, ctx: EventContext):
-        # Waifu不响应命令
-        cmd_prefix = self.ap.command_cfg.data['command-prefix']
-        if any(str(ctx.event.message_chain).startswith(prefix) for prefix in cmd_prefix):
-            self.ap.logger.info(f"忽略LangBot指令: {str(ctx.event.message_chain)}。")
-            return
-
+    async def _access_control_check(self, ctx: EventContext) -> bool:
+        """
+        访问控制检查，根据配置判断是否允许继续处理
+        :param ctx: 包含事件上下文信息的 EventContext 对象
+        :return: True if allowed to continue, False otherwise
+        """
+        message_chain = str(ctx.event.message_chain)
         launcher_id = ctx.event.launcher_id
+        sender_id = ctx.event.sender_id
+        launcher_type = ctx.event.launcher_type
+
+        # 排除主项目命令
+        cmd_prefix = self.ap.command_cfg.data.get("command-prefix", [])
+        if any(message_chain.startswith(prefix) for prefix in cmd_prefix):
+            return False
+
+        # 黑白名单检查
+        mode = self.ap.pipeline_cfg.data["access-control"]["mode"]
+        sess_list = set(self.ap.pipeline_cfg.data["access-control"].get(mode, []))
+
+        found = (launcher_type == "group" and "group_*" in sess_list) or (launcher_type == "person" and "person_*" in sess_list) or f"{launcher_type}_{launcher_id}" in sess_list
+
+        if (mode == "whitelist" and not found) or (mode == "blacklist" and found):
+            reason = "不在白名单中" if mode == "whitelist" else "在黑名单中"
+            self.ap.logger.info(f"拒绝访问: {launcher_type}_{launcher_id} {reason}。")
+            return False
+
+        # 检查配置是否存在，若不存在则加载配置
         if launcher_id not in self.waifu_cache:
             await self._load_config(launcher_id, ctx.event.launcher_type)
+
+        # Waifu 群聊成员黑名单
+        waifu_data = self.waifu_cache.get(launcher_id, None)
+        if waifu_data and sender_id in waifu_data.blacklist:
+            self.ap.logger.info(f"已屏蔽黑名单中{sender_id}的发言: {str(ctx.event.message_chain)}。")
+            return False
+
+        return True
+
+    @handler(PersonMessageReceived)
+    async def person_message_received(self, ctx: EventContext):
+        if not await self._access_control_check(ctx):
+            return
 
         need_assistant_reply, need_save_memory = await self._handle_command(ctx)
         if need_assistant_reply:
             await self._request_person_reply(ctx, need_save_memory)
-            asyncio.create_task(self._handle_narration(ctx, launcher_id))
+            asyncio.create_task(self._handle_narration(ctx, ctx.event.launcher_id))
 
     @handler(GroupMessageReceived)
     async def group_message_received(self, ctx: EventContext):
-        # Waifu不响应命令
-        cmd_prefix = self.ap.command_cfg.data['command-prefix']
-        if any(str(ctx.event.message_chain).startswith(prefix) for prefix in cmd_prefix):
-            self.ap.logger.info(f"忽略LangBot指令: {str(ctx.event.message_chain)}。")
+        if not await self._access_control_check(ctx):
             return
 
-        launcher_id = ctx.event.launcher_id
-        sender_id = ctx.event.sender_id
-        if launcher_id not in self.waifu_cache:
-            await self._load_config(launcher_id, ctx.event.launcher_type)
         # 在GroupNormalMessageReceived的ctx.event.query.message_chain会将At移除
         # 所以这在经过主项目处理前先进行备份
-        self.waifu_cache[launcher_id].group_message_chain = copy.deepcopy(ctx.event.message_chain)
-        # 群聊黑名单
-        if sender_id in self.waifu_cache[launcher_id].blacklist:
-            self.ap.logger.info(f"Waifu插件已屏蔽来自黑名单中{sender_id}的发言: {str(ctx.event.message_chain)}。")
-        else:
-            need_assistant_reply, _ = await self._handle_command(ctx)
-            if need_assistant_reply:
-                await self._request_group_reply(ctx)
+        self.waifu_cache[ctx.event.launcher_id].group_message_chain = copy.deepcopy(ctx.event.message_chain)
+
+        need_assistant_reply, _ = await self._handle_command(ctx)
+        if need_assistant_reply:
+            await self._request_group_reply(ctx)
 
     async def _load_config(self, launcher_id: str, launcher_type: str):
         self.waifu_cache[launcher_id] = WaifuCache(self.ap, launcher_id, launcher_type)
@@ -468,7 +490,7 @@ class Waifu(BasePlugin):
             user_prompt = config.memory.get_normalize_short_term_memory()  # 默认为当前short_term_memory_size条聊天记录
             if config.thinking_mode_flag:
                 user_prompt, analysis = await config.thoughts.generate_person_prompt(config.memory, config.cards)
-                if config.display_thinking:
+                if config.display_thinking and config.conversation_analysis_flag:
                     await self._reply(ctx, f"【分析】：{analysis}")
             await self._send_person_reply(ctx, user_prompt)  # 生成回复并发送
 
@@ -600,16 +622,21 @@ class Waifu(BasePlugin):
         query = ctx.event.query
         has_image = False
         content_list = []
+
+        session = await self.ap.sess_mgr.get_session(query)
+        conversation = await self.ap.sess_mgr.get_conversation(session)
+        use_model = conversation.use_model
+
         for me in query.message_chain:
             if isinstance(me, platform_message.Plain):
                 content_list.append(llm_entities.ContentElement.from_text(me.text))
             elif isinstance(me, platform_message.Image):
-                if self.ap.provider_cfg.data["enable-vision"] and query.use_model.vision_supported:
+                if self.ap.provider_cfg.data["enable-vision"] and use_model:
                     if me.url is not None:
                         has_image = True
                         content_list.append(llm_entities.ContentElement.from_image_url(str(me.url)))
         if not has_image:
-            return str(ctx.event.query.message_chain)
+            return str(query.message_chain)
         else:
             return await self.waifu_cache[ctx.event.launcher_id].thoughts.analyze_picture(content_list)
 

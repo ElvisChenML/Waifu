@@ -73,7 +73,6 @@ class TextAnalyzer:
         :param text: text string
         """
         text = await self._remove_meaningless(text)
-        print("Texsmart Tags")
         words = []
         i18n_list = []
         related_list = []
@@ -94,10 +93,6 @@ class TextAnalyzer:
         words = sorted(set(words))
         i18n_list = sorted(set(i18n_list))
         related_list = sorted(set(related_list))
-
-        print(f"words: {words}")
-        print(f"i18n: {i18n_list}")
-        print(f"related: {related_list}")
 
         term_freq_counter = Counter(words)
         return term_freq_counter, i18n_list, related_list

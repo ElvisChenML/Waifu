@@ -3,6 +3,7 @@ import numpy as np
 import json
 import os
 import re
+from datetime import datetime, timedelta
 from pkg.core import app
 from collections import Counter
 from plugins.Waifu.cells.text_analyzer import TextAnalyzer
@@ -84,11 +85,14 @@ class Memory:
         else:
             self._has_preset = False
 
-    async def _tag_conversations(self, conversations: typing.List[llm_entities.Message]) -> typing.Tuple[str, typing.List[str]]:
-        if len(conversations) > 1:
+    async def _tag_conversations(self, conversations: typing.List[llm_entities.Message], summary_flag: bool) -> typing.Tuple[str, typing.List[str]]:
+        # 生成Tags：
+        # 1、短期记忆转换长期记忆时：进行记忆总结
+        # 2、对话提取记忆时：直接拼凑末尾对话
+        if summary_flag:
             memory = await self._generate_summary(conversations)
         else:
-            memory = self.get_last_content(conversations, 5)
+            memory = self.get_last_content(conversations, 10)
 
         # 使用TexSmart HTTP API生成词频统计并获取i18n信息和related信息
         term_freq_counter, i18n_list, related_list = await self._text_analyzer.term_freq(memory)
@@ -123,12 +127,121 @@ class Memory:
 
     async def _tag_and_add_conversations(self):
         if self.short_term_memory:
-            summary, tags = await self._tag_conversations(self.short_term_memory[: self._memory_batch_size])
+            summary, tags = await self._tag_conversations(self.short_term_memory[: self._memory_batch_size], True)
+            tags.extend(self._generate_time_tags()) # 增加当天时间标签并去重
+            tags = list(set(tags))
             if len(self.short_term_memory) > self._memory_batch_size:
                 self.short_term_memory = self.short_term_memory[self._memory_batch_size :]
             self._add_long_term_memory(summary, tags)
             self._save_long_term_memory_to_file()
             self._save_short_term_memory_to_file()
+
+    def _generate_time_tags(self) -> typing.List[str]:
+        now = datetime.now()
+
+        period = "上午"
+        if now.hour >= 12:
+            period = "下午"
+
+        year_tag = f"{now.year}年"
+        month_tag = f"{now.month}月"
+        day_tag = f"{now.day}日"
+        period_tag = period
+
+        return [year_tag, month_tag, day_tag, period_tag]
+
+    def _extract_time_and_add_tags(self, message: typing.Union[str, object]) -> typing.List[str]:
+        """
+            提取 message_content 中的时间戳，并添加相应的时间标签。
+            
+            已匹配过的关键词不能再次匹配，字数多的关键词优先。
+            匹配后从句子中删除已匹配的文字。
+            """
+        ct = str(message.get_content_platform_message_chain())
+        time_pattern = r"\[(\d{2}年\d{2}月\d{2}日(?:上午|下午)?\d{2}时\d{2}分)\]"
+        matches = re.findall(time_pattern, ct)
+
+        if not matches:
+            return []
+
+        now = self._parse_chinese_time(matches[0])
+        time_tags = []
+
+        # 处理日期关键词
+        relative_days = {"大后天": 3, "后天": 2, "明天": 1, "今天": 0, 
+                            "昨天": -1, "前天": -2, "大前天": -3}
+        for day_str, offset in sorted(relative_days.items(), key=lambda x: -len(x[0])):
+            if day_str in ct:
+                target_date = now + timedelta(days=offset)
+                time_tags += [f"{target_date.year}年", f"{target_date.month}月", f"{target_date.day}日"]
+                ct = ct.replace(day_str, "", 1)
+
+        # 处理本周、上周、下周和扩展周期
+        week_prefixes = {"上上": -14, "上": -7, "": 0, "这": 0, "本": 0, "下": 7, "下下": 14}
+        weekdays = {"周一": 0, "周二": 1, "周三": 2, "周四": 3, "周五": 4, "周六": 5, "周日": 6}
+        for prefix, week_offset in sorted(week_prefixes.items(), key=lambda x: -len(x[0])):
+            for weekday_str, weekday_offset in weekdays.items():
+                week_str = f"{prefix}{weekday_str}"
+                if week_str in ct:
+                    start_of_week = now - timedelta(days=now.weekday())
+                    target_date = start_of_week + timedelta(days=week_offset + weekday_offset)
+                    time_tags += [f"{target_date.year}年", f"{target_date.month}月", f"{target_date.day}日"]
+                    ct = ct.replace(week_str, "", 1)
+
+        # 完整周添加 (e.g., 下周 = 添加下周一至下周日)
+        for prefix, week_offset in sorted(week_prefixes.items(), key=lambda x: -len(x[0])):
+            week_str = f"{prefix}周"
+            if week_str in ct and prefix: # 跳过仅“周”字避免误触
+                start_of_week = now - timedelta(days=now.weekday())
+                target_week_start = start_of_week + timedelta(days=week_offset)
+                for weekday_offset in range(7):
+                    target_date = target_week_start + timedelta(days=weekday_offset)
+                    time_tags += [f"{target_date.year}年", f"{target_date.month}月", f"{target_date.day}日"]
+                ct = ct.replace(week_str, "", 1)
+
+        # 处理本月、上一个月、下一个月
+        month_keywords = {"本月": 0, "上月": -1, "下月": 1, "上个月": -1, "下个月": 1}
+        for month_str, offset in sorted(month_keywords.items(), key=lambda x: -len(x[0])):
+            if month_str in ct:
+                target_month = now.replace(day=1) + timedelta(days=30 * offset)
+                time_tags += [f"{target_month.year}年", f"{target_month.month}月"]
+                ct = ct.replace(month_str, "", 1)
+
+        # 处理今年、明年、后年、前年
+        year_keywords = {"今年": 0, "明年": 1, "后年": 2, "前年": -2}
+        for year_str, offset in sorted(year_keywords.items(), key=lambda x: -len(x[0])):
+            if year_str in ct:
+                target_year = now.replace(year=now.year + offset, month=1, day=1)
+                time_tags = [f"{target_year.year}年"]
+                ct = ct.replace(year_str, "", 1)
+
+        # 处理时段关键词
+        time_period_keywords = {"上午": ["早上", "清晨", "上午"], "下午": ["晚上", "傍晚", "下午"]}
+        for tag, keywords in time_period_keywords.items():
+            for keyword in sorted(keywords, key=lambda x: -len(x)):
+                if keyword in ct:
+                    time_tags += [tag]
+                    ct = ct.replace(keyword, "", 1)
+
+        return time_tags
+
+    def _parse_chinese_time(self, time_str) -> datetime:
+        # 判断是否为下午
+        is_afternoon = "下午" in time_str
+
+        # 移除汉字 "年"、"月"、"日"、"上午"、"下午"、"时"、"分"
+        pattern = r"[年月日时分上下午]"
+        time_cleaned = re.sub(pattern, "", time_str)
+        time_cleaned = f"20{time_cleaned}"  # 补全年份
+
+        # 转换为 datetime 对象
+        dt = datetime.strptime(time_cleaned, "%Y%m%d%H%M")
+
+        # 如果是下午且小时小于12，需加12小时
+        if is_afternoon and dt.hour < 12:
+            dt = dt.replace(hour=dt.hour + 12)
+
+        return dt
 
     def _save_conversations_to_file(self, conversations: typing.List[llm_entities.Message]):
         try:
@@ -167,7 +280,7 @@ class Memory:
             summary_vector = self._get_tag_vector(tags)
             similarity = self._cosine_similarity(input_vector, summary_vector)
             similarities.append((similarity, summary))
-            self.ap.logger.info(f"Similarity: {similarity}, Tags: {tags}")
+            # self.ap.logger.info(f"Similarity: {similarity}, Tags: {tags}")
 
         similarities.sort(reverse=True, key=lambda x: x[0])
         return [summary for _, summary in similarities[: self._retrieve_top_n]]
@@ -194,8 +307,12 @@ class Memory:
     async def load_memory(self, conversations: typing.List[llm_entities.Message]) -> typing.List[str]:
         if not self._long_term_memory:
             return []
-        self.ap.logger.info("记忆加载中")
-        _, tags = await self._tag_conversations(conversations)
+        _, tags = await self._tag_conversations(conversations, False)
+        for message in conversations:
+            tags.extend(self._extract_time_and_add_tags(message))  # 增加时间相关标签并去重
+        tags = list(set(tags))
+        formatted_tags = ", ".join(tags)
+        self.ap.logger.info(f"记忆加载中 Tags: {formatted_tags}")
         return self._retrieve_related_memories(tags)
 
     def get_all_memories(self) -> str:
