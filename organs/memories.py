@@ -3,6 +3,7 @@ import numpy as np
 import json
 import os
 import re
+from pkg.core import app
 from collections import Counter
 from plugins.Waifu.cells.text_analyzer import TextAnalyzer
 from plugins.Waifu.cells.generator import Generator
@@ -12,9 +13,11 @@ from plugins.Waifu.cells.config import ConfigManager
 
 
 class Memory:
-    def __init__(self, host: APIHost, launcher_id: str, launcher_type: str):
-        self.host = host
-        self.ap = host.ap
+
+    ap: app.Application
+
+    def __init__(self, ap: app.Application, launcher_id: str, launcher_type: str):
+        self.ap = ap
         self.short_term_memory: typing.List[llm_entities.Message] = []
         self.analyze_max_conversations = 9
         self.narrate_max_conversations = 8
@@ -27,10 +30,10 @@ class Memory:
         self.user_name = "user"
         self.assistant_name = "assistant"
         self.conversation_analysis_flag = True
-        self._text_analyzer = TextAnalyzer(host)
+        self._text_analyzer = TextAnalyzer(ap)
         self._launcher_id = launcher_id
         self._launcher_type = launcher_type
-        self._generator = Generator(host)
+        self._generator = Generator(ap)
         self._long_term_memory: typing.List[typing.Tuple[str, typing.List[str]]] = []
         self._tags_index = {}
         self._short_term_memory_size = 100
@@ -351,7 +354,7 @@ class Memory:
         last_messages = conversations[-n:] if n <= len(conversations) else conversations
         combined_content = ""
         for message in last_messages:
-            combined_content += self.get_content_str_without_timestamp(message) + " "
+            combined_content += self._generator.get_content_str_without_timestamp(message) + " "
 
         return combined_content.strip()
 
@@ -366,7 +369,7 @@ class Memory:
 
         for message in self.short_term_memory:
             role = message.role
-            content = message.content
+            content = self._generator.get_content_str_without_timestamp(message)
 
             if role not in support_list:
                 role = "user"  # 非思维链模式不支援特殊role
@@ -376,7 +379,7 @@ class Memory:
                 if not user_buffer:
                     user_buffer = content
                 else:
-                    user_buffer += " " + self.get_content_str_without_timestamp(content)
+                    user_buffer += " " + content
             elif found_user:
                 if user_buffer:
                     normalized.append(llm_entities.Message(role="user", content=user_buffer.strip()))
@@ -387,21 +390,6 @@ class Memory:
             normalized.append(llm_entities.Message(role="user", content=user_buffer.strip()))
 
         return normalized
-
-    def get_content_str_without_timestamp(self, message: llm_entities.Message | str) -> str:
-        message_content = ""
-        if isinstance(message, llm_entities.Message):
-            message_content = str(message.get_content_platform_message_chain())
-        else:
-            message_content = message
-        message_content = self.to_custom_names(message_content)
-        match = re.search(r"\[\d{2}年\d{2}月\d{2}日(上午|下午)?\d{2}时\d{2}分\]", message_content)
-        if match:
-            # 获取匹配到的时间戳后的内容
-            content_after_timestamp = message_content[match.end() :].strip()
-            return content_after_timestamp
-        else:
-            return message_content
 
     def get_repeat_msg(self) -> str:
         """
@@ -415,7 +403,7 @@ class Memory:
         potential_repeats = []
 
         for message in conversations:
-            message_content = self.get_content_str_without_timestamp(message)
+            message_content = self._generator.get_content_str_without_timestamp(message)
             if message.role == "assistant":
                 self._already_repeat.add(message_content)
             content_counter[message_content] += 1
@@ -450,5 +438,5 @@ class Memory:
         text = re.sub(r"助理", "assistant", text, flags=re.IGNORECASE)
         return text
 
-    def set_jail_break(self, jail_break: str, type: str):
-        self._generator.set_jail_break(jail_break, type)
+    def set_jail_break(self, type: str, user_name: str):
+        self._generator.set_jail_break(type, user_name)

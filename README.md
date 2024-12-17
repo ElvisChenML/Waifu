@@ -29,6 +29,12 @@
   * 情感表达：通过语言表达安慰、同情、喜悦等情感。
 * 事件：虚构生活细节和日常活动，加入话题中。
 
+### Waifu 1.9
+
+* 优化 现在Waifu支援与其他插件同时运行，不再阻止后续事件，你可以尝试接入表情、语音等其他插件。
+* 优化 后续版本将不再需要修改群消息响应规则的随机响应概率（respond-rules中的random）。
+* 优化 破限支持新模式“all”，将同时启用所有破限（before、after、end），若不需要破限的部分可清空对应破限文字txt。
+
 ### Waifu 1.6
 
 * 新增 配置项character 的 “off ” 选项，当填入 “off” 时，将不使用角色预设，惟存在长期记忆时，会在system prompt中加入memories的内容。
@@ -36,7 +42,6 @@
 ### Waifu 1.5
 
 * 新增 群聊黑名单 blacklist 配置项，现在你可以屏蔽群中特定QQ号了。
-* 新增 语音插件适配，目前支援[NewChatVoice](https://github.com/the-lazy-me/NewChatVoice)1.1及以上的版本。
 * 新增 复读 repeat_trigger 配置项，可以设置群聊出现重复发言时触发复读的最小次数（不含原发言）；触发回复后，检测到重复出现的对话时参与复读。
 * 新增 配置项：最大旁白字数 max_narrat_words 、最大思考字数 max_thinking_words ，此配置不是硬性限制，该配置体现于提示语中。
 
@@ -46,9 +51,6 @@
     * 注意：关闭思维链将不支援特殊role，意味着所有非user及assistant的发言者将统一为user，群聊将不再具备区分不同用户的功能。
     * 关闭思维链后可以单独使用破甲、拟人化、记忆总结等其他功能。
 * 新增 角色卡新增固定内置属性Prologue（开场场景），现在你可以通过命令[开场场景]，控制旁白输出开场场景的内容。
-* 优化 角色卡现在支援任意属性，满足yaml的key、value格式即可，value可为字符串或列表。
-* 优化 去除模型输出说话者的逻辑（“苏苏：”）。
-* 优化 角色设定文件鲁棒性。
 
 ### Waifu 1.3
 
@@ -63,7 +65,6 @@
   * 使用范例2：剧情推进杰克
 * 优化 “控制人物”指令，现在允许调用模型替非助手的角色发言。
   * 使用范例：控制人物杰克|继续
-* 优化 将模型输出标点符号统一替换回中文符号，去除回复头尾的的单双引号。
 * 优化 引入中文分词取代模型实现数值变化及记忆总结标签，大量减少了模型调用次数（标签效果有亿点点差）。
   * Waifu\config\positive.yaml 存放正向分词
   * Waifu\config\negative.yaml 存放负面分词
@@ -77,8 +78,6 @@
 * 新增 群聊新增@指令支援，现在你可以@你的Bot了。
 * 新增 消息支援图片。
 * 新增 昵称识别，不再是数字人。
-* 优化 token节省：将发送的提示词中所有中文标点符号转换成英文。
-* 优化 支援抛出模型报错。
 
 ### Waifu 1.1
 
@@ -216,24 +215,15 @@
   
 * 修改 pipeline.json 启用群聊模式
   
+  * Waifu 1.9.0 版本后将不需要修改respond-rules中的random
+  
   * ```json
     # 建议修改为whitelist模式
     "access-control":{
         "mode": "whitelist",
         "blacklist": [],
         "whitelist": [激活Bot的群号]
-    },
-    # random改为1，所有会话交由插件处理
-    "respond-rules": {
-        "default": {
-            "at": true,
-            "prefix": [
-                "/ai", "!ai", "！ai", "ai"
-            ],
-            "regexp": [],
-            "random": 1
-        }
-    },
+    }
     ```
   
 * config/waifu.yaml
@@ -249,8 +239,7 @@
   story_mode: false # 是否开启剧情模式（旁白、状态栏），仅私聊模式生效。
   thinking_mode: true # 是否开启思维链。
   personate_mode: false # 是否启用拟人化：打字时间、分段回复。
-  jail_break_mode: "off" # off/before/after/end；是否启用破甲，off：关闭破甲，before：系统提示前加入破甲提示，after：系统提示后加入破甲提示，end：上下文末尾加入破甲提示；破甲内容请修改：jail_break_before.txt、jail_break_after.txt、jail_break_end.txt。
-  tts_mode: "off" # off/ncv；是否启用文字转语音，off：关闭文字转语音，ncv：调用NewChatVoice插件。
+  jail_break_mode: "off" # off/before/after/end/all；是否启用破甲，off：关闭破甲，before：系统提示前加入破甲提示，after：系统提示后加入破甲提示，end：上下文末尾加入破甲提示；all：全部启用；破甲内容请修改：jail_break_before.txt、jail_break_after.txt、jail_break_end.txt。
   
   # 思考模块
   display_thinking: false # 是否显示内心活动。
@@ -328,13 +317,10 @@
 1. `plugins\Waifu\templates\`
 此目录存放模板文件,在`data\plugins\Waifu\`下的文件都以此目录下的文件为模板生成.
 2. `data\plugins\Waifu\`
-├─cards
-├─config
-└─data
 `cards` 用来存放角色卡
 `config`存放配置文件
 `data`存放对话记录
- 
+
 
 #### 自定义角色卡
 ##### 1. 编写角色卡
@@ -342,21 +328,21 @@
 ##### 2. 放置角色卡
 将`example.yaml`移至`data\plugins\Waifu\cards`目录下
 ##### 3. 使用角色卡
-- 更改默认的角色卡(默认的角色卡对所有人都起作用):<br>
-打开`data\plugins\Waifu\config`下的`waifu.yaml`文件,将`character: "default"`改为`character: "example"`
+- 更改默认的角色卡(默认的角色卡对所有人都起作用):
+  打开`data\plugins\Waifu\config`下的`waifu.yaml`文件,将`character: "default"`改为`character: "example"`
 
 
 启动即可生效
 
 - 更改针对具体用户或群聊的角色卡
-打开`data\plugins\Waifu\config`<br>
+打开`data\plugins\Waifu\config`
 在某个用户或群聊已经对机器人有过对话后,会生成`waifu_{user_qq号}.yaml`文件.
 这里假设产生了`waifu_1234567.yaml`文件.
 打开此文件,将`character: "default"`更改为`character: "example"`
 
 启动即可生效.
 
-*** 
+***
 
 ## 协助开发
 

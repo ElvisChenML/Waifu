@@ -1,5 +1,5 @@
 import typing
-from pkg.plugin.context import APIHost
+from pkg.core import app
 from plugins.Waifu.cells.generator import Generator
 from plugins.Waifu.organs.memories import Memory
 from plugins.Waifu.cells.cards import Cards
@@ -7,10 +7,12 @@ from pkg.provider import entities as llm_entities
 
 
 class Thoughts:
-    def __init__(self, host: APIHost):
-        self.host = host
-        self.ap = host.ap
-        self._generator = Generator(host)
+
+    ap: app.Application
+
+    def __init__(self, ap: app.Application):
+        self.ap = ap
+        self._generator = Generator(ap)
 
     async def _analyze_person_conversations(self, memory: Memory, profile: str, background: str, manner: str) -> str:
         conversations = memory.short_term_memory[-memory.analyze_max_conversations :]
@@ -167,5 +169,5 @@ class Thoughts:
             msg += text_msg
         return msg
 
-    def set_jail_break(self, jail_break: str, type: str):
-        self._generator.set_jail_break(jail_break, type)
+    def set_jail_break(self, type: str, user_name: str):
+        self._generator.set_jail_break(type, user_name)

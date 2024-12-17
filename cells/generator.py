@@ -2,7 +2,9 @@ import json
 import typing
 import re
 import functools
+import os
 from datetime import datetime
+from pkg.core import app
 from pkg.plugin.context import APIHost
 from pkg.provider import entities as llm_entities
 from pkg.provider.modelmgr import errors
@@ -25,21 +27,23 @@ def handle_errors(func):
 
 
 class Generator:
-    def __init__(self, host: APIHost):
-        self.host = host
-        self.ap = host.ap
-        self._jail_break = ""
+
+    ap: app.Application
+
+    def __init__(self, ap: app.Application):
+        self.ap = ap
+        self._jail_break_dict = {}
         self._jail_break_type = ""
         self._speakers = []
 
     def _get_question_prompts(self, user_prompt: str, output_format: str = "JSON list", system_prompt: str = None) -> typing.List[llm_entities.Message]:
         messages = []
-        if self._jail_break and self._jail_break_type == "before":
-            messages.append(llm_entities.Message(role="system", content=self._jail_break))
+        if self._jail_break_type in ["before", "all"] and "before" in self._jail_break_dict:
+            messages.append(llm_entities.Message(role="system", content=self._jail_break_dict["before"]))
         if system_prompt:
             messages.append(llm_entities.Message(role="system", content=system_prompt))
-        if self._jail_break and self._jail_break_type == "after":
-            messages.append(llm_entities.Message(role="system", content=self._jail_break))
+        if self._jail_break_type in ["after", "all"] and "after" in self._jail_break_dict:
+            messages.append(llm_entities.Message(role="system", content=self._jail_break_dict["after"]))
 
         task = {
             "task": user_prompt,
@@ -47,8 +51,8 @@ class Generator:
         }
 
         user_prompt = json.dumps(task, ensure_ascii=False).strip()
-        if self._jail_break and self._jail_break_type == "end":
-            user_prompt += self._jail_break
+        if self._jail_break_type in ["end", "all"] and "end" in self._jail_break_dict:
+            user_prompt += self._jail_break_dict["end"]
 
         messages.append(llm_entities.Message(role="user", content=user_prompt))
 
@@ -56,17 +60,17 @@ class Generator:
 
     def _get_chat_prompts(self, user_prompt: str | typing.List[llm_entities.Message], system_prompt: str = None) -> typing.List[llm_entities.Message]:
         messages = []
-        if self._jail_break and self._jail_break_type == "before":
-            messages.append(llm_entities.Message(role="system", content=self._jail_break))
+        if self._jail_break_type in ["before", "all"] and "before" in self._jail_break_dict:
+            messages.append(llm_entities.Message(role="system", content=self._jail_break_dict["before"]))
         if system_prompt:
             messages.append(llm_entities.Message(role="system", content=system_prompt))
-        if self._jail_break and self._jail_break_type == "after":
-            messages.append(llm_entities.Message(role="system", content=self._jail_break))
-        if self._jail_break and self._jail_break_type == "end":
+        if self._jail_break_type in ["after", "all"] and "after" in self._jail_break_dict:
+            messages.append(llm_entities.Message(role="system", content=self._jail_break_dict["after"]))
+        if self._jail_break_type in ["end", "all"] and "end" in self._jail_break_dict:
             if isinstance(user_prompt, list):
-                user_prompt[-1].content += self._jail_break
+                user_prompt[-1].content += self._jail_break_dict["end"]
             else:
-                user_prompt += self._jail_break
+                user_prompt += self._jail_break_dict["end"]
         if isinstance(user_prompt, list):
             messages.extend(user_prompt)
         else:
@@ -186,6 +190,8 @@ class Generator:
         cleaned_response = self._remove_all_quotes(cleaned_response)
         # 删除特定破甲字符串
         cleaned_response = cleaned_response.replace("<结束无效提示>", "")
+        # 删除回复中的时间戳
+        cleaned_response = self.get_content_str_without_timestamp(cleaned_response)
 
         return cleaned_response
 
@@ -211,6 +217,7 @@ class Generator:
             # Extract the JSON part of the response
             json_str = response[start_index:end_index]
 
+            json_str = json_str.replace("，", ",")  # Replace Chinese commas with English commas
             json_str = re.sub(r",\s*(?=])", "", json_str)  # Remove trailing commas before closing bracket
             json_str = re.sub(r"[^\u4e00-\u9fa5A-Za-z\s\[\],\":]", " ", json_str).strip()  # Remove invalid characters and strip
 
@@ -240,6 +247,18 @@ class Generator:
     def _is_balanced(self, string: str, open_char: str, close_char: str) -> bool:
         return string.count(open_char) == string.count(close_char)
 
+    def get_content_str_without_timestamp(self, message: llm_entities.Message | str) -> str:
+        message_content = ""
+        if isinstance(message, llm_entities.Message):
+            message_content = str(message.get_content_platform_message_chain())
+        else:
+            message_content = message
+
+        # 使用 re.sub 移除所有时间戳
+        message_content = re.sub(r"\[\d{2}年\d{2}月\d{2}日(上午|下午)?\d{2}时\d{2}分\]", "", message_content)
+
+        return message_content.strip()
+
     def messages_to_readable_str(self, messages: typing.List[llm_entities.Message]) -> str:
         return "\n".join(message.readable_str() for message in messages)
 
@@ -252,9 +271,24 @@ class Generator:
         chinese_time = current_time.strftime(f"%y年%m月%d日{period}%H时%M分")
         return chinese_time
 
-    def set_jail_break(self, jail_break: str, type: str):
-        self._jail_break = jail_break
-        self._jail_break_type = type
+    def set_jail_break(self, jail_break_type: str, user_name: str):
+        self._jail_break_type = jail_break_type
+        self._jail_break_dict = {}
+        base_filepath = "data/plugins/Waifu/config/"
+
+        if jail_break_type == "all":
+            # Load all jail break files
+            for type_name in ["before", "after", "end"]:
+                filepath = f"{base_filepath}jail_break_{type_name}.txt"
+                if os.path.exists(filepath):
+                    with open(filepath, "r", encoding="utf-8") as f:
+                        self._jail_break_dict[type_name] = f.read().replace("{{user}}", user_name)
+        else:
+            # Load a specific jail break type
+            filepath = f"{base_filepath}jail_break_{jail_break_type}.txt"
+            if os.path.exists(filepath):
+                with open(filepath, "r", encoding="utf-8") as f:
+                    self._jail_break_dict[jail_break_type] = f.read().replace("{{user}}", user_name)
 
     def set_speakers(self, speakers: list):
         self._speakers = speakers

@@ -1,13 +1,15 @@
 import typing
 import re
-from pkg.plugin.context import APIHost
+from pkg.core import app
 from plugins.Waifu.cells.config import ConfigManager
 
 
 class Cards:
-    def __init__(self, host: APIHost):
-        self.host = host
-        self.ap = host.ap
+
+    ap: app.Application
+
+    def __init__(self, ap: app.Application):
+        self.ap = ap
         self._user_name = "user"
         self._assistant_name = "assistant"
         self._language = ""

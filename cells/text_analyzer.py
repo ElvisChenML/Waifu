@@ -3,18 +3,19 @@ import requests
 import yaml
 import re
 import os
+from pkg.core import app
 from collections import Counter
 from typing import Tuple, List, Dict, Any
-from pkg.plugin.context import APIHost
 from plugins.Waifu.cells.config import ConfigManager
 
 
 class TextAnalyzer:
     LOADED_DICTIONARIES = {}
 
-    def __init__(self, host: APIHost):
-        self.host = host
-        self.ap = host.ap
+    ap: app.Application
+
+    def __init__(self, ap: app.Application):
+        self.ap = ap
 
     async def _load_yaml_dict(self, file: str) -> Dict[str, list]:
         """

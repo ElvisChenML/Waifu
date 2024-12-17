@@ -1,14 +1,16 @@
 import asyncio
 import typing
 import os
-import mirai
 import random
 import re
 import copy
 import shutil
-from mirai import MessageChain
+from pkg.provider import runner
+from pkg.core import app
+from pkg.core import entities as core_entities
+from pkg.platform.types import message as platform_message
 from pkg.plugin.context import register, handler, BasePlugin, APIHost, EventContext
-from pkg.plugin.events import PersonNormalMessageReceived, GroupMessageReceived, GroupNormalMessageReceived
+from pkg.plugin.events import PersonMessageReceived, GroupMessageReceived, NormalMessageResponded
 from pkg.provider import entities as llm_entities
 from plugins.Waifu.cells.config import ConfigManager
 from plugins.Waifu.cells.generator import Generator
@@ -39,15 +41,18 @@ COMMANDS = {
 }
 
 
-class WaifuConfig:
-    def __init__(self, host: APIHost, launcher_id: str, launcher_type: str):
+class WaifuCache:
+
+    ap: app.Application
+
+    def __init__(self, ap: app.Application, launcher_id: str, launcher_type: str):
         self.launcher_id = launcher_id
         self.launcher_type = launcher_type
-        self.memory = Memory(host, launcher_id, launcher_type)
-        self.value_game = ValueGame(host)
-        self.cards = Cards(host)
-        self.narrator = Narrator(host, launcher_id)
-        self.thoughts = Thoughts(host)
+        self.memory = Memory(ap, launcher_id, launcher_type)
+        self.value_game = ValueGame(ap)
+        self.cards = Cards(ap)
+        self.narrator = Narrator(ap, launcher_id)
+        self.thoughts = Thoughts(ap)
         self.conversation_analysis_flag = True
         self.thinking_mode_flag = True
         self.story_mode_flag = True
@@ -68,116 +73,139 @@ class WaifuConfig:
         self.group_response_delay = 3
         self.person_response_delay = 0
         self.group_message_chain = None
-        self.tts_mode = "off"
-        self.ncv = None
         self.blacklist = []
 
 
-@register(name="Waifu", description="Cuter than real waifu!", version="1.8.3", author="ElvisChenML")
+@runner.runner_class("waifu-mode")
+class WaifuRunner(runner.RequestRunner):
+    async def run(self, query: core_entities.Query):
+        # 为了适配其他插件，以屏蔽runner的方式取代ctx.prevent_default()
+        # 不需在配置文件中手动配置运行器，将在插件加载过程强制指定为waifu-mode
+        # 返回一个空的异步生成器
+        if False:  # 永远不会执行，但保留生成器语法
+            yield
+        return
+
+
+@register(name="Waifu", description="Cuter than real waifu!", version="1.9.0", author="ElvisChenML")
 class Waifu(BasePlugin):
+
     def __init__(self, host: APIHost):
-        self.host = host
         self.ap = host.ap
         self._ensure_required_files_exist()
-        self._generator = Generator(host)
-        self.configs: typing.Dict[str, WaifuConfig] = {}
+        self._generator = Generator(self.ap)
+        self.waifu_cache: typing.Dict[str, WaifuCache] = {}
         self._set_permissions_recursively("data/plugins/Waifu/", 0o777)
 
     async def initialize(self):
+        await self._set_waifu_runner()
         # 为新用户创建配置文件
-        waifu_config = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu")
-        await waifu_config.load_config(completion=True)
+        config_mgr = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu")
+        await config_mgr.load_config(completion=True)
 
-    @handler(PersonNormalMessageReceived)
-    async def person_normal_message_received(self, ctx: EventContext):
+    # @handler(NormalMessageResponded)
+    # async def normal_message_responded(self, ctx: EventContext):
+    #     self.ap.logger.info(f"LangGPT的NormalMessageResponded: {str(ctx.event.response_text)}。")
+
+    @handler(PersonMessageReceived)
+    async def person_message_received(self, ctx: EventContext):
+        # Waifu不响应命令
+        cmd_prefix = self.ap.command_cfg.data['command-prefix']
+        if any(str(ctx.event.message_chain).startswith(prefix) for prefix in cmd_prefix):
+            self.ap.logger.info(f"忽略LangBot指令: {str(ctx.event.message_chain)}。")
+            return
+
         launcher_id = ctx.event.launcher_id
-        if launcher_id not in self.configs:
+        if launcher_id not in self.waifu_cache:
             await self._load_config(launcher_id, ctx.event.launcher_type)
 
         need_assistant_reply, need_save_memory = await self._handle_command(ctx)
         if need_assistant_reply:
             await self._request_person_reply(ctx, need_save_memory)
             asyncio.create_task(self._handle_narration(ctx, launcher_id))
-        ctx.prevent_default()
 
     @handler(GroupMessageReceived)
-    async def group_normal_message_received(self, ctx: EventContext):
+    async def group_message_received(self, ctx: EventContext):
+        # Waifu不响应命令
+        cmd_prefix = self.ap.command_cfg.data['command-prefix']
+        if any(str(ctx.event.message_chain).startswith(prefix) for prefix in cmd_prefix):
+            self.ap.logger.info(f"忽略LangBot指令: {str(ctx.event.message_chain)}。")
+            return
+
         launcher_id = ctx.event.launcher_id
         sender_id = ctx.event.sender_id
-        if launcher_id not in self.configs:
+        if launcher_id not in self.waifu_cache:
             await self._load_config(launcher_id, ctx.event.launcher_type)
         # 在GroupNormalMessageReceived的ctx.event.query.message_chain会将At移除
         # 所以这在经过主项目处理前先进行备份
-        self.configs[launcher_id].group_message_chain = copy.deepcopy(ctx.event.message_chain)
-        # 群聊忽视默认命令防止误触
-        if str(ctx.event.message_chain).startswith("!") or str(ctx.event.message_chain).startswith("！"):
-            if "ncv" not in str(ctx.event.message_chain): # 允许配置特定指令
-                self.ap.logger.info(f"Waifu插件已屏蔽群聊主项目指令: {str(ctx.event.message_chain)}，请于私聊中发送指令。")
-                ctx.prevent_default()
+        self.waifu_cache[launcher_id].group_message_chain = copy.deepcopy(ctx.event.message_chain)
         # 群聊黑名单
-        if sender_id in self.configs[launcher_id].blacklist:
+        if sender_id in self.waifu_cache[launcher_id].blacklist:
             self.ap.logger.info(f"Waifu插件已屏蔽来自黑名单中{sender_id}的发言: {str(ctx.event.message_chain)}。")
-            ctx.prevent_default()
-
-    @handler(GroupNormalMessageReceived)
-    async def group_normal_message_received(self, ctx: EventContext):
-        launcher_id = ctx.event.launcher_id
-        if launcher_id not in self.configs:
-            await self._load_config(launcher_id, ctx.event.launcher_type)
-
-        need_assistant_reply, _ = await self._handle_command(ctx)
-        if need_assistant_reply:
-            await self._request_group_reply(ctx)
-        ctx.prevent_default()
+        else:
+            need_assistant_reply, _ = await self._handle_command(ctx)
+            if need_assistant_reply:
+                await self._request_group_reply(ctx)
 
     async def _load_config(self, launcher_id: str, launcher_type: str):
-        self.configs[launcher_id] = WaifuConfig(self.host, launcher_id, launcher_type)
-        config = self.configs[launcher_id]
+        self.waifu_cache[launcher_id] = WaifuCache(self.ap, launcher_id, launcher_type)
+        cache = self.waifu_cache[launcher_id]
 
-        waifu_config = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu", launcher_id)
-        await waifu_config.load_config(completion=True)
+        config_mgr = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu", launcher_id)
+        await config_mgr.load_config(completion=True)
 
-        character = waifu_config.data.get("character", f"default")
+        character = config_mgr.data.get("character", f"default")
         if character == "default":  # 区分私聊和群聊的模板
             character = f"default_{launcher_type}"
         else:
             character = character.replace(".yaml", "")
 
-        config.narrate_intervals = waifu_config.data.get("intervals", [])
-        config.story_mode_flag = waifu_config.data.get("story_mode", True)
-        config.thinking_mode_flag = waifu_config.data.get("thinking_mode", True)
-        config.conversation_analysis_flag = waifu_config.data.get("conversation_analysis", True)
-        config.display_thinking = waifu_config.data.get("display_thinking", True)
-        config.display_value = waifu_config.data.get("display_value", False)
-        config.response_rate = waifu_config.data.get("response_rate", 0.7)
-        config.summarization_mode = waifu_config.data.get("summarization_mode", False)
-        config.personate_mode = waifu_config.data.get("personate_mode", True)
-        config.jail_break_mode = waifu_config.data.get("jail_break_mode", "off")
-        config.bracket_rate = waifu_config.data.get("bracket_rate", [])
-        config.group_response_delay = waifu_config.data.get("group_response_delay", 10)
-        config.person_response_delay = waifu_config.data.get("person_response_delay", 0)
-        config.continued_rate = waifu_config.data.get("continued_rate", 0.5)
-        config.continued_max_count = waifu_config.data.get("continued_max_count", 2)
-        config.tts_mode = waifu_config.data.get("tts_mode", "off")
-        config.blacklist = waifu_config.data.get("blacklist", [])
+        cache.narrate_intervals = config_mgr.data.get("intervals", [])
+        cache.story_mode_flag = config_mgr.data.get("story_mode", True)
+        cache.thinking_mode_flag = config_mgr.data.get("thinking_mode", True)
+        cache.conversation_analysis_flag = config_mgr.data.get("conversation_analysis", True)
+        cache.display_thinking = config_mgr.data.get("display_thinking", True)
+        cache.display_value = config_mgr.data.get("display_value", False)
+        cache.response_rate = config_mgr.data.get("response_rate", 0.7)
+        cache.summarization_mode = config_mgr.data.get("summarization_mode", False)
+        cache.personate_mode = config_mgr.data.get("personate_mode", True)
+        cache.jail_break_mode = config_mgr.data.get("jail_break_mode", "off")
+        cache.bracket_rate = config_mgr.data.get("bracket_rate", [])
+        cache.group_response_delay = config_mgr.data.get("group_response_delay", 10)
+        cache.person_response_delay = config_mgr.data.get("person_response_delay", 0)
+        cache.continued_rate = config_mgr.data.get("continued_rate", 0.5)
+        cache.continued_max_count = config_mgr.data.get("continued_max_count", 2)
+        cache.blacklist = config_mgr.data.get("blacklist", [])
 
-        await config.memory.load_config(character, launcher_id, launcher_type)
-        await config.value_game.load_config(character, launcher_id, launcher_type)
-        await config.cards.load_config(character, launcher_type)
-        await config.narrator.load_config()
+        await cache.memory.load_config(character, launcher_id, launcher_type)
+        await cache.value_game.load_config(character, launcher_id, launcher_type)
+        await cache.cards.load_config(character, launcher_type)
+        await cache.narrator.load_config()
 
-        self._set_jail_break(config, "", "off")
-        if config.jail_break_mode in ["before", "after", "end"]:
-            self._apply_jail_break(config, config.jail_break_mode)
+        self._set_jail_break(cache, "off")
+        if cache.jail_break_mode in ["before", "after", "end", "all"]:
+            self._set_jail_break(cache, cache.jail_break_mode)
 
         self._set_permissions_recursively("data/plugins/Waifu/", 0o777)
+
+    async def _set_waifu_runner(self):
+        """用于设置 RunnerManager 的 using_runner 为 waifu-mode"""
+        runner_mgr = self.ap.runner_mgr
+        if runner_mgr:
+            for r in runner.preregistered_runners:
+                if r.name == "waifu-mode":
+                    runner_mgr.using_runner = r(self.ap)
+                    await runner_mgr.using_runner.initialize()
+                    break
+            else:
+                raise Exception("Runner 'waifu-mode' not found in preregistered_runners.")
 
     async def _handle_command(self, ctx: EventContext) -> typing.Tuple[bool, bool]:
         need_assistant_reply = False
         need_save_memory = False
         response = ""
         launcher_id = ctx.event.launcher_id
-        config = self.configs[launcher_id]
+        config = self.waifu_cache[launcher_id]
         msg = str(ctx.event.query.message_chain)
         self.ap.logger.info(f"Waifu处理消息:{msg}")
 
@@ -229,7 +257,7 @@ class Waifu(BasePlugin):
             response = self._stop_timer(launcher_id)
         elif msg == "开场场景":
             response = config.memory.to_custom_names(config.cards.get_prologue())
-            ctx.event.query.message_chain = MessageChain([f"控制人物narrator|{response}"])
+            ctx.event.query.message_chain = platform_message.MessageChain([f"控制人物narrator|{response}"])
             need_assistant_reply, need_save_memory = await self._handle_command(ctx)
         elif msg == "旁白":
             await self._narrate(ctx, launcher_id)
@@ -260,9 +288,9 @@ class Waifu(BasePlugin):
             role = msg[4:].strip()
             if not role:  # 若不指定哪个角色推进剧情，默认为user
                 role = "user"
-            ctx.event.query.message_chain = MessageChain(["旁白"])
+            ctx.event.query.message_chain = platform_message.MessageChain(["旁白"])
             need_assistant_reply, need_save_memory = await self._handle_command(ctx)  # 此时不会触发assistant回复
-            ctx.event.query.message_chain = MessageChain([f"控制人物{role}|继续"])
+            ctx.event.query.message_chain = platform_message.MessageChain([f"控制人物{role}|继续"])
             need_assistant_reply, need_save_memory = await self._handle_command(ctx)
         elif msg.startswith("功能测试"):
             # 隐藏指令，功能测试会清空记忆，请谨慎执行。
@@ -276,16 +304,16 @@ class Waifu(BasePlugin):
             need_save_memory = True
 
         if response:
-            await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, MessageChain([str(response)]), False)
+            await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, platform_message.MessageChain([str(response)]), False)
         return need_assistant_reply, need_save_memory
 
     def _list_commands(self) -> str:
         return "\n\n".join([f"{cmd}: {desc}" for cmd, desc in COMMANDS.items()])
 
     def _stop_timer(self, launcher_id: str):
-        if launcher_id in self.configs and self.configs[launcher_id].launcher_timer_tasks:
-            self.configs[launcher_id].launcher_timer_tasks.cancel()
-            self.configs[launcher_id].launcher_timer_tasks = None
+        if launcher_id in self.waifu_cache and self.waifu_cache[launcher_id].launcher_timer_tasks:
+            self.waifu_cache[launcher_id].launcher_timer_tasks.cancel()
+            self.waifu_cache[launcher_id].launcher_timer_tasks = None
             return "计时器已停止。"
         else:
             return "没有正在运行的计时器。"
@@ -315,7 +343,7 @@ class Waifu(BasePlugin):
 
     async def _request_group_reply(self, ctx: EventContext):
         launcher_id = ctx.event.launcher_id
-        config = self.configs[launcher_id]
+        config = self.waifu_cache[launcher_id]
         sender = ctx.event.query.message_event.sender.member_name
         msg = await self._vision(ctx)  # 用眼睛看消息？
         await config.memory.save_memory(role=sender, content=msg)
@@ -324,9 +352,9 @@ class Waifu(BasePlugin):
 
     async def _group_reply(self, ctx: EventContext):
         launcher_id = ctx.event.launcher_id
-        config = self.configs[launcher_id]
+        config = self.waifu_cache[launcher_id]
         need_assistant_reply = False
-        if config.group_message_chain and config.group_message_chain.has(mirai.At(ctx.event.query.adapter.bot_account_id)):
+        if config.group_message_chain and config.group_message_chain.has(platform_message.At(ctx.event.query.adapter.bot_account_id)):
             need_assistant_reply = True
         if config.unreplied_count >= config.memory.response_min_conversations:
             if random.random() < config.response_rate:
@@ -336,13 +364,13 @@ class Waifu(BasePlugin):
 
         config.group_message_chain = None
         if need_assistant_reply:
-            if launcher_id not in self.configs or not config.response_timers_flag:
+            if launcher_id not in self.waifu_cache or not config.response_timers_flag:
                 config.response_timers_flag = True
                 asyncio.create_task(self._delayed_group_reply(ctx))
 
     async def _delayed_group_reply(self, ctx: EventContext):
         launcher_id = ctx.event.launcher_id
-        config = self.configs[launcher_id]
+        config = self.waifu_cache[launcher_id]
         self.ap.logger.info(f"wait group {launcher_id} for {config.group_response_delay}s")
         await asyncio.sleep(config.group_response_delay)
         self.ap.logger.info(f"generating group {launcher_id} response")
@@ -368,11 +396,11 @@ class Waifu(BasePlugin):
             config.response_timers_flag = False
 
     async def _send_group_reply(self, ctx: EventContext):
-        '''
+        """
         调用模型生成群聊回复
-        '''
+        """
         launcher_id = ctx.event.launcher_id
-        config = self.configs[launcher_id]
+        config = self.waifu_cache[launcher_id]
         if config.summarization_mode:
             _, unreplied_conversations = config.memory.get_unreplied_msg(config.unreplied_count)
             related_memories = await config.memory.load_memory(unreplied_conversations)
@@ -399,7 +427,7 @@ class Waifu(BasePlugin):
 
     async def _request_person_reply(self, ctx: EventContext, need_save_memory: bool):
         launcher_id = ctx.event.launcher_id
-        config = self.configs[launcher_id]
+        config = self.waifu_cache[launcher_id]
 
         if need_save_memory:  # 此处仅处理user的发言，保存至短期记忆
             msg = await self._vision(ctx)  # 用眼睛看消息？
@@ -409,16 +437,16 @@ class Waifu(BasePlugin):
 
     async def _person_reply(self, ctx: EventContext):
         launcher_id = ctx.event.launcher_id
-        config = self.configs[launcher_id]
+        config = self.waifu_cache[launcher_id]
 
         if config.unreplied_count > 0:
-            if launcher_id not in self.configs or not config.response_timers_flag:
+            if launcher_id not in self.waifu_cache or not config.response_timers_flag:
                 config.response_timers_flag = True
                 asyncio.create_task(self._delayed_person_reply(ctx))
 
     async def _delayed_person_reply(self, ctx: EventContext):
         launcher_id = ctx.event.launcher_id
-        config = self.configs[launcher_id]
+        config = self.waifu_cache[launcher_id]
         self.ap.logger.info(f"wait person {launcher_id} for {config.person_response_delay}s")
         await asyncio.sleep(config.person_response_delay)
         self.ap.logger.info(f"generating person {launcher_id} response")
@@ -464,7 +492,7 @@ class Waifu(BasePlugin):
 
     async def _send_person_reply(self, ctx: EventContext, user_prompt: str | list[llm_entities.ContentElement]):
         launcher_id = ctx.event.launcher_id
-        config = self.configs[launcher_id]
+        config = self.waifu_cache[launcher_id]
         system_prompt = config.memory.to_custom_names(config.cards.generate_system_prompt())
         self._generator.set_speakers([config.memory.assistant_name])
         response = await self._generator.return_chat(user_prompt, system_prompt)
@@ -485,19 +513,19 @@ class Waifu(BasePlugin):
 
     async def _continue_person_reply(self, ctx: EventContext):
         launcher_id = ctx.event.launcher_id
-        config = self.configs[launcher_id]
+        config = self.waifu_cache[launcher_id]
         user_prompt = await config.thoughts.generate_person_continue_prompt(config.memory)
         await self._send_person_reply(ctx, user_prompt)  # 生成回复并发送
 
     async def _handle_narration(self, ctx: EventContext, launcher_id: str):
-        if launcher_id in self.configs and self.configs[launcher_id].launcher_timer_tasks:
-            self.configs[launcher_id].launcher_timer_tasks.cancel()
+        if launcher_id in self.waifu_cache and self.waifu_cache[launcher_id].launcher_timer_tasks:
+            self.waifu_cache[launcher_id].launcher_timer_tasks.cancel()
 
-        self.configs[launcher_id].launcher_timer_tasks = asyncio.create_task(self._timed_narration_task(ctx, launcher_id))
+        self.waifu_cache[launcher_id].launcher_timer_tasks = asyncio.create_task(self._timed_narration_task(ctx, launcher_id))
 
     async def _timed_narration_task(self, ctx: EventContext, launcher_id: str):
         try:
-            config = self.configs[launcher_id]
+            config = self.waifu_cache[launcher_id]
             for interval in config.narrate_intervals:
                 self.ap.logger.info("Start narrate timer: {}".format(interval))
                 await asyncio.create_task(self._sleep_and_narrate(ctx, launcher_id, interval))
@@ -512,7 +540,7 @@ class Waifu(BasePlugin):
         await self._narrate(ctx, launcher_id)
 
     async def _narrate(self, ctx: EventContext, launcher_id: str):
-        config = self.configs[launcher_id]
+        config = self.waifu_cache[launcher_id]
         conversations = config.memory.short_term_memory
         if len(conversations) < 2:
             return
@@ -524,7 +552,7 @@ class Waifu(BasePlugin):
             await config.memory.save_memory(role="narrator", content=narration)
 
     async def _send_personate_reply(self, ctx: EventContext, response: str):
-        config = self.configs[ctx.event.launcher_id]
+        config = self.waifu_cache[ctx.event.launcher_id]
         parts = re.split(r"([，。？！,.?!\n~〜])", response)  # 保留分隔符
         combined_parts = []
         temp_part = ""
@@ -539,7 +567,7 @@ class Waifu(BasePlugin):
                 if temp_part or not combined_parts:
                     temp_part += part
                 else:
-                    combined_parts[-1] += part                    
+                    combined_parts[-1] += part
             else:
                 temp_part += " " + part
                 if len(temp_part) >= 3:
@@ -567,32 +595,15 @@ class Waifu(BasePlugin):
             self.ap.logger.info(f"发送：{part}")
             await asyncio.sleep(len(part) / 2)  # 根据字数计算延迟时间，假设每2个字符1秒
 
-    async def _handle_voice_synthesis(self, launcher_id: int, text: str, ctx: EventContext):
-        try:
-            from plugins.NewChatVoice.main import VoicePlugin, VoiceSynthesisError
-        except ImportError as e:
-            self.ap.logger.error(f"Failed to import VoicePlugin: {e}")
-            return False
-        config = self.configs[ctx.event.launcher_id]
-        if not config.ncv:
-            config.ncv = VoicePlugin(self.host)
-        try:
-            voice = await config.ncv.ncv_tts(launcher_id, text)
-            await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, MessageChain([voice]), False)
-            return True
-        except VoiceSynthesisError as e:
-            self.ap.logger.error(f"{e}")
-            return False
-
     async def _vision(self, ctx: EventContext) -> str:
         # 参考自preproc.py PreProcessor
         query = ctx.event.query
         has_image = False
         content_list = []
         for me in query.message_chain:
-            if isinstance(me, mirai.Plain):
+            if isinstance(me, platform_message.Plain):
                 content_list.append(llm_entities.ContentElement.from_text(me.text))
-            elif isinstance(me, mirai.Image):
+            elif isinstance(me, platform_message.Image):
                 if self.ap.provider_cfg.data["enable-vision"] and query.use_model.vision_supported:
                     if me.url is not None:
                         has_image = True
@@ -600,39 +611,52 @@ class Waifu(BasePlugin):
         if not has_image:
             return str(ctx.event.query.message_chain)
         else:
-            return await self.configs[ctx.event.launcher_id].thoughts.analyze_picture(content_list)
+            return await self.waifu_cache[ctx.event.launcher_id].thoughts.analyze_picture(content_list)
 
     def _remove_blank_lines(self, text: str) -> str:
         lines = text.split("\n")
         non_blank_lines = [line for line in lines if line.strip() != ""]
         return "\n".join(non_blank_lines)
 
-    async def _reply(self, ctx: EventContext, response: str, voice: bool = False):
-        launcher_id = ctx.event.launcher_id
-        config = self.configs[launcher_id]
-        response_fixed = config.memory.get_content_str_without_timestamp(response) # 避免模型仿照着回了时间戳        
-        response_fixed = self._remove_blank_lines(response_fixed)
-        if voice and config.tts_mode == "ncv":
-            await self._handle_voice_synthesis(launcher_id, response_fixed, ctx)
-        else:
-            await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, MessageChain([f"{response_fixed}"]), False)
+    async def _reply(self, ctx: EventContext, response: str, event_trigger: bool = False):
+        response_fixed = self._remove_blank_lines(response)
+        await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, platform_message.MessageChain([f"{response_fixed}"]), False)
+        if event_trigger:
+            await self._emit_responded_event(ctx, response_fixed)
+
+    async def _emit_responded_event(self, ctx: EventContext, response: str):
+        query = ctx.event.query
+        session = await self.ap.sess_mgr.get_session(query)
+        await self.ap.plugin_mgr.emit_event(
+            event=NormalMessageResponded(
+                launcher_type=query.launcher_type.value,
+                launcher_id=query.launcher_id,
+                sender_id=query.sender_id,
+                session=session,
+                prefix="",
+                response_text=response,
+                finish_reason="stop",
+                funcs_called=[],
+                query=query,
+            )
+        )
 
     def _response_presets(self, launcher_id: int):
-        '''
+        """
         预设形式的回复：复读
-        '''
+        """
         response = self._check_repeat(launcher_id)
         return response
 
     def _check_repeat(self, launcher_id: int) -> str:
-        return self.configs[launcher_id].memory.get_repeat_msg()
+        return self.waifu_cache[launcher_id].memory.get_repeat_msg()
 
-    def _set_jail_break(self, config, jail_break: str, type: str):
-        self._generator.set_jail_break(jail_break, type)
-        config.memory.set_jail_break(jail_break, type)
-        config.value_game.set_jail_break(jail_break, type)
-        config.narrator.set_jail_break(jail_break, type)
-        config.thoughts.set_jail_break(jail_break, type)
+    def _set_jail_break(self, cache: WaifuCache, type: str):
+        self._generator.set_jail_break(type, cache.memory.user_name)
+        cache.memory.set_jail_break(type, cache.memory.user_name)
+        cache.value_game.set_jail_break(type, cache.memory.user_name)
+        cache.narrator.set_jail_break(type, cache.memory.user_name)
+        cache.thoughts.set_jail_break(type, cache.memory.user_name)
 
     async def _test(self, ctx: EventContext):
         """
@@ -640,7 +664,7 @@ class Waifu(BasePlugin):
         """
         # 修改配置以优化测试效果
         launcher_id = ctx.event.launcher_id
-        config = self.configs[launcher_id]
+        config = self.waifu_cache[launcher_id]
         config.narrate_intervals = []
         config.story_mode_flag = True
         config.display_thinking = True
@@ -663,18 +687,15 @@ class Waifu(BasePlugin):
         await self._test_command(ctx, "手动书写自己发言（等同于直接发送）#控制人物user|哇！")
         config.display_thinking = False
         config.person_response_delay = 5
-        config.jail_break_mode = "before"
-        self._apply_jail_break(config, config.jail_break_mode)
+        config.jail_break_mode = "all"
+        self._set_jail_break(config, config.jail_break_mode)
         await self._test_command(ctx, "手动书写“指定角色”发言#控制人物快递员|叮咚~有人在家吗，有你们的快递！")
-        config.jail_break_mode = "after"
-        self._apply_jail_break(config, config.jail_break_mode)
-        await self._test_command(ctx, "手动书写旁白#控制人物narrator|（neko兴奋的跳了起来。）")
         config.jail_break_mode = "off"
-        self._set_jail_break(config, "", "off")
+        self._set_jail_break(config, "off")
+        await self._test_command(ctx, "手动书写旁白#控制人物narrator|（neko兴奋的跳了起来。）")
         config.personate_mode = True
         config.bracket_rate = [1, 1]
         await self._test_command(ctx, "请AI生成旁白#旁白")
-        config.tts_mode = "off"
         config.personate_mode = False
         config.continued_rate = 1
         config.continued_max_count = 2
@@ -696,25 +717,15 @@ class Waifu(BasePlugin):
             note = parts[0].strip()
             cmd = parts[1].strip()
         await self._reply(ctx, f"【模拟发送】（{note}）\n{cmd}")
-        ctx.event.query.message_chain = MessageChain([cmd])
+        ctx.event.query.message_chain = platform_message.MessageChain([cmd])
         need_assistant_reply, need_save_memory = await self._handle_command(ctx)
         if need_assistant_reply:
             if need_save_memory:
                 msg = await self._vision(ctx)
-                await self.configs[ctx.event.launcher_id].memory.save_memory(role="user", content=msg)
+                await self.waifu_cache[ctx.event.launcher_id].memory.save_memory(role="user", content=msg)
             await self._delayed_person_reply(ctx)
 
-    def _apply_jail_break(self, config, jail_break_type: str):
-        filepath = f"data/plugins/Waifu/config/jail_break_{jail_break_type}.txt"
-        jail_break = ""
-        if os.path.exists(filepath):
-            with open(filepath, "r", encoding="utf-8") as f:
-                jail_break = f.read()
-        if jail_break:
-            jail_break = jail_break.replace("{{user}}", config.memory.user_name)
-            self._set_jail_break(config, jail_break, jail_break_type)
-
     def __del__(self):
-        for config in self.configs.values():
+        for config in self.waifu_cache.values():
             if config.launcher_timer_tasks:
                 config.launcher_timer_tasks.cancel()

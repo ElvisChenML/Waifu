@@ -1,19 +1,20 @@
 import json
 import re
+from pkg.core import app
 from plugins.Waifu.cells.text_analyzer import TextAnalyzer
 from plugins.Waifu.cells.config import ConfigManager
 from plugins.Waifu.cells.generator import Generator
 from plugins.Waifu.organs.memories import Memory
-from pkg.plugin.context import APIHost
 
 
 class ValueGame:
 
-    def __init__(self, host: APIHost):
-        self.host = host
-        self.ap = host.ap
-        self._generator = Generator(host)
-        self._text_analyzer = TextAnalyzer(host)
+    ap: app.Application
+
+    def __init__(self, ap: app.Application):
+        self.ap = ap
+        self._generator = Generator(ap)
+        self._text_analyzer = TextAnalyzer(ap)
         self._value = 0
         self._manner_descriptions = []
         self._max_manner_change = 10
@@ -120,5 +121,5 @@ class ValueGame:
     def reset_value(self):
         self._value = 0
 
-    def set_jail_break(self, jail_break: str, type: str):
-        self._generator.set_jail_break(jail_break, type)
+    def set_jail_break(self, type: str, user_name: str):
+        self._generator.set_jail_break(type, user_name)
