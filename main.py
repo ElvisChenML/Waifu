@@ -10,7 +10,7 @@ from pkg.core import app
 from pkg.core import entities as core_entities
 from pkg.platform.types import message as platform_message
 from pkg.plugin.context import register, handler, BasePlugin, APIHost, EventContext
-from pkg.plugin.events import PersonMessageReceived, GroupMessageReceived, NormalMessageResponded
+from pkg.plugin.events import PersonMessageReceived, GroupMessageReceived, NormalMessageResponded, GroupNormalMessageReceived
 from pkg.provider import entities as llm_entities
 from plugins.Waifu.cells.config import ConfigManager
 from plugins.Waifu.cells.generator import Generator
@@ -48,6 +48,7 @@ class WaifuCache:
     def __init__(self, ap: app.Application, launcher_id: str, launcher_type: str):
         self.launcher_id = launcher_id
         self.launcher_type = launcher_type
+        self.langbot_group_rule = False
         self.memory = Memory(ap, launcher_id, launcher_type)
         self.value_game = ValueGame(ap)
         self.cards = Cards(ap)
@@ -87,7 +88,7 @@ class WaifuRunner(runner.RequestRunner):
         return
 
 
-@register(name="Waifu", description="Cuter than real waifu!", version="1.9.1", author="ElvisChenML")
+@register(name="Waifu", description="Cuter than real waifu!", version="1.9.2", author="ElvisChenML")
 class Waifu(BasePlugin):
 
     def __init__(self, host: APIHost):
@@ -112,16 +113,16 @@ class Waifu(BasePlugin):
         访问控制检查，根据配置判断是否允许继续处理
         :param ctx: 包含事件上下文信息的 EventContext 对象
         :return: True if allowed to continue, False otherwise
-        """
-        message_chain = str(ctx.event.message_chain)
+        """      
+        text_message = str(ctx.event.query.message_chain)
         launcher_id = ctx.event.launcher_id
         sender_id = ctx.event.sender_id
         launcher_type = ctx.event.launcher_type
-
-        # 排除主项目命令
-        cmd_prefix = self.ap.command_cfg.data.get("command-prefix", [])
-        if any(message_chain.startswith(prefix) for prefix in cmd_prefix):
-            return False
+        event_type = "PMR"
+        if isinstance(ctx.event, GroupNormalMessageReceived):
+            event_type = "GNMR"
+        elif isinstance(ctx.event, GroupMessageReceived):
+            event_type = "GMR"
 
         # 黑白名单检查
         mode = self.ap.pipeline_cfg.data["access-control"]["mode"]
@@ -137,11 +138,23 @@ class Waifu(BasePlugin):
         # 检查配置是否存在，若不存在则加载配置
         if launcher_id not in self.waifu_cache:
             await self._load_config(launcher_id, ctx.event.launcher_type)
+        waifu_data = self.waifu_cache.get(launcher_id, None)
+
+        # 继承LangBot的群消息响应规则时忽略 GroupMessageReceived 信号
+        if event_type == "GMR" and waifu_data.langbot_group_rule == True:
+            return False
+        # 仅由Waifu管理群聊响应规则时忽略 GroupNormalMessageReceived 信号
+        if event_type == "GNMR" and waifu_data.langbot_group_rule == False:
+            return False
+
+        # 排除主项目命令
+        cmd_prefix = self.ap.command_cfg.data.get("command-prefix", [])
+        if any(text_message.startswith(prefix) for prefix in cmd_prefix):
+            return False
 
         # Waifu 群聊成员黑名单
-        waifu_data = self.waifu_cache.get(launcher_id, None)
         if waifu_data and sender_id in waifu_data.blacklist:
-            self.ap.logger.info(f"已屏蔽黑名单中{sender_id}的发言: {str(ctx.event.message_chain)}。")
+            self.ap.logger.info(f"已屏蔽黑名单中{sender_id}的发言: {str(text_message)}。")
             return False
 
         return True
@@ -157,13 +170,14 @@ class Waifu(BasePlugin):
             asyncio.create_task(self._handle_narration(ctx, ctx.event.launcher_id))
 
     @handler(GroupMessageReceived)
+    @handler(GroupNormalMessageReceived)
     async def group_message_received(self, ctx: EventContext):
         if not await self._access_control_check(ctx):
             return
 
         # 在GroupNormalMessageReceived的ctx.event.query.message_chain会将At移除
         # 所以这在经过主项目处理前先进行备份
-        self.waifu_cache[ctx.event.launcher_id].group_message_chain = copy.deepcopy(ctx.event.message_chain)
+        self.waifu_cache[ctx.event.launcher_id].group_message_chain = copy.deepcopy(ctx.event.query.message_chain)
 
         need_assistant_reply, _ = await self._handle_command(ctx)
         if need_assistant_reply:
@@ -198,6 +212,7 @@ class Waifu(BasePlugin):
         cache.continued_rate = config_mgr.data.get("continued_rate", 0.5)
         cache.continued_max_count = config_mgr.data.get("continued_max_count", 2)
         cache.blacklist = config_mgr.data.get("blacklist", [])
+        cache.langbot_group_rule = config_mgr.data.get("langbot_group_rule", False)
 
         await cache.memory.load_config(character, launcher_id, launcher_type)
         await cache.value_game.load_config(character, launcher_id, launcher_type)

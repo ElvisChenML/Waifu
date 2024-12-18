@@ -5,6 +5,7 @@ story_mode: false # 是否开启剧情模式（旁白、状态栏），仅私聊
 thinking_mode: true # 是否开启思维链。开启后模型将具备：更高的拟人化程度、区分不同群用户发言。注意：思维链会在一定程度上影响模型回复。
 personate_mode: false # 是否启用拟人化：打字时间、分段回复。
 jail_break_mode: "off" # off/before/after/end/all；是否启用破甲，off：关闭破甲，before：系统提示前加入破甲提示，after：系统提示后加入破甲提示，end：上下文末尾加入破甲提示；all：全部启用；破甲内容请修改：jail_break_before.txt、jail_break_after.txt、jail_break_end.txt。
+langbot_group_rule: false # 是否继承LangBot的群消息响应规则；若启用继承LangBot的群消息响应规则，模型会忽略不在响应规则内的群聊记录；默认规则为接收处理全部群聊记录。
 
 # 思考模块
 conversation_analysis: False # 是否启用场景分析。分析可以更好的理解会话场景，但有可能造成无法回答专业问题的负面效果。
