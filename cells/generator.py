@@ -93,7 +93,7 @@ class Generator:
 
         self.ap.logger.info("发送请求：\n{}".format(self.messages_to_readable_str(messages)))
 
-        response = await model_info.requester.call(model=model_info, messages=messages)
+        response = await model_info.requester.call(None, model=model_info, messages=messages)
         cleaned_response = self.clean_response(response.content)
 
         self.ap.logger.info("模型回复：\n{}".format(cleaned_response))
@@ -107,7 +107,7 @@ class Generator:
 
         self.ap.logger.info("发送请求：\n{}".format(self.messages_to_readable_str(messages)))
 
-        response = await model_info.requester.call(model=model_info, messages=messages)
+        response = await model_info.requester.call(None, model=model_info, messages=messages)
         cleaned_response = self.clean_response(response.content)
 
         self.ap.logger.info("模型回复：\n{}".format(cleaned_response))
@@ -120,7 +120,7 @@ class Generator:
 
         self.ap.logger.info("发送请求：\n{}".format(self.messages_to_readable_str(messages)))
 
-        response = await model_info.requester.call(model=model_info, messages=messages)
+        response = await model_info.requester.call(None, model=model_info, messages=messages)
         cleaned_response = self.clean_response(response.content)
 
         self.ap.logger.info("模型回复：\n{}".format(cleaned_response))
@@ -134,7 +134,7 @@ class Generator:
 
         self.ap.logger.info("发送请求：\n{}".format(self.messages_to_readable_str(messages)))
 
-        response = await model_info.requester.call(model=model_info, messages=messages)
+        response = await model_info.requester.call(None, model=model_info, messages=messages)
         cleaned_response = self.clean_response(response.content)
 
         self.ap.logger.info("模型回复：\n{}".format(cleaned_response))
@@ -147,7 +147,7 @@ class Generator:
 
         self.ap.logger.info("发送请求：\n{}".format(self.messages_to_readable_str(messages)))
 
-        response = await model_info.requester.call(model=model_info, messages=messages)
+        response = await model_info.requester.call(None, model=model_info, messages=messages)
         cleaned_response = self.clean_response(response.content)
 
         self.ap.logger.info("模型回复：\n{}".format(cleaned_response))
@@ -160,7 +160,7 @@ class Generator:
 
         self.ap.logger.info("发送请求：\n{}".format(self.messages_to_readable_str(messages)))
 
-        response = await model_info.requester.call(model=model_info, messages=messages)
+        response = await model_info.requester.call(None, model=model_info, messages=messages)
         cleaned_response = self.clean_response(response.content)
 
         self.ap.logger.info("模型回复：\n{}".format(cleaned_response))
@@ -173,7 +173,7 @@ class Generator:
 
         self.ap.logger.info("发送请求：\n{}".format(self.messages_to_readable_str(messages)))
 
-        response = await model_info.requester.call(model=model_info, messages=messages)
+        response = await model_info.requester.call(None, model=model_info, messages=messages)
         cleaned_response = self.clean_response(response.content)
 
         self.ap.logger.info("模型回复：\n{}".format(cleaned_response))
