@@ -2,18 +2,29 @@
 
 [![Github stars](https://img.shields.io/github/stars/ElvisChenML/Waifu?color=cd7373&logo=github&style=flat-square)](https://github.com/ElvisChenML/Waifu/stargazers) ![github top language](https://img.shields.io/github/languages/top/ElvisChenML/Waifu?logo=github) [![License](https://img.shields.io/github/license/ElvisChenML/Waifu?&color=cd7373&style=flat-square)](./LICENSE) [![Static Badge](https://img.shields.io/badge/%E7%A4%BE%E5%8C%BA%E7%BE%A4-619154800-purple)](https://qm.qq.com/q/PClALFK242)
 
-* 社区群为QChatGPT社区群，有项目主程序或插件相关问题可至群内询问。
+* 社区群为LangBot社区群，有项目主程序或插件相关问题可至群内询问。
 * 提问前请先查看文档及Issue。
 
 ## 介绍🔎
 
-这是一个QChatGPT的插件，旨在利用程式逻辑搭配LLM创建真实感聊天机器人，探索真实的聊天体验。
+这是一个LangBot的插件，旨在利用程式逻辑搭配LLM创建真实感聊天机器人，探索真实的聊天体验。
 
-* 相关Bot功能、与LLM模型交互等基础方法均由QChatGPT实现。
+* 相关Bot功能、与LLM模型交互等基础方法均由LangBot实现。
 * 你的体验取决于项目中的提示词和你的LLM适配程度，开发过程使用的是Cohere Command R+，其他LLM并未测试。
-* 开发过程并未考虑其他QChatGPT插件的兼容性，有可能会产生异常。
+* 开发过程并未考虑其他LangBot插件的兼容性，有可能会产生异常。
+
+## 来自作者的话
+
+Waifu 2.0 的开发过程中，发现过去版本部分功能偏离了设计初衷，Waifu 2.0 重新梳理了功能，由于 Waifu 2.0 与 1.0 差异较大，将以独立项目呈现，原Waifu项目后续将仅做必要的更新维护。
+
+目前已知差异：
+
+* 将暂不持支群聊，1.0 为了兼容群聊做了很多针对性的调整，也导致对于聊天记录的处理受到了部分限制，待私聊模式完善后会考虑重新加入群聊功能。
+* 将移除旁白、剧情推进、Value Game等第三人称的功能，1.0 受酒馆吸引加入了很多类似的功能，2.0 将回到初衷，专注探索提升第一人称的交互体验。
+* 破甲方式重新设计，将不兼容目前的破甲文件，得依循新指引重新配置破甲。
 
 ## 版本记录
+<details><summary>点击展开/收起</summary>
 
 ### Waifu 2.0 预告
 
@@ -128,13 +139,15 @@
 
     > (爱丽丝张嘴，杰克往里瞧，老王凑近。爱丽丝伸舌头，杰克笑了，老王疑惑。杰克指了指舌头，爱丽丝闭嘴，老王若有所思点头。)
 
+</details>
+
 ### 已实现功能
 
 ✅ 画饼: 画一个不大不小的饼
 
 #### 底层模块 Cells（独立运作、不调用任何其他模块）
 
-✅ 问答模块 generator.py：通过QChatGPT调用LLM进行问答。
+✅ 问答模块 generator.py：通过LangBot调用LLM进行问答。
 
 ✅ 角色模块 cards.py：Waifu的人物预设识别模块，采用LangGPT格式。
 
@@ -176,12 +189,12 @@
 
 ## 安装💻
 
-配置完成 [QChatGPT](https://github.com/RockChinQ/QChatGPT) 主程序后使用管理员账号向机器人发送命令即可安装：
+配置完成 [LangBot](https://github.com/RockChinQ/LangBot) 主程序后使用管理员账号向机器人发送命令即可安装：
 
 
 !plugin get https://github.com/ElvisChenML/Waifu
 
-或查看详细的[插件安装说明](https://github.com/RockChinQ/QChatGPT/wiki/5-%E6%8F%92%E4%BB%B6%E4%BD%BF%E7%94%A8)
+或查看详细的[插件安装说明](https://docs.langbot.app/plugin/plugin-intro.html#%E6%8F%92%E4%BB%B6%E7%94%A8%E6%B3%95)
 
 ## 使用✏️
 
@@ -217,6 +230,8 @@
   
   * Waifu 1.9.0 版本后将不需要修改respond-rules中的random
   
+  * 若未启用waifu配置中的langbot_group_rule，将忽略pipeline.json关于响应规则的设置
+  
   * ```json
     # 建议修改为whitelist模式
     "access-control":{
@@ -234,14 +249,16 @@
   
   ```yaml
   # 通用设置
-  character: "default" # off：不使用角色预设；请填入water/cards中的 “角色卡名称.yaml” 的 角色卡名称，使用默认值“default”时会使用模板config/default_*.yaml创建cards/default_*.yaml。
+  character: "default" # off：不使用角色预设；请填Waifu/cards中的 “角色卡名称.yaml” 的 角色卡名称，使用默认值“default”时会使用模板config/default_*.yaml创建cards/default_*.yaml。
   summarization_mode: false # 是否开启长期记忆，不开启则超出short_term_memory_size直接截断。
   story_mode: false # 是否开启剧情模式（旁白、状态栏），仅私聊模式生效。
-  thinking_mode: true # 是否开启思维链。
+  thinking_mode: true # 是否开启思维链。开启后模型将具备：更高的拟人化程度、区分不同群用户发言。注意：思维链会在一定程度上影响模型回复。
   personate_mode: false # 是否启用拟人化：打字时间、分段回复。
   jail_break_mode: "off" # off/before/after/end/all；是否启用破甲，off：关闭破甲，before：系统提示前加入破甲提示，after：系统提示后加入破甲提示，end：上下文末尾加入破甲提示；all：全部启用；破甲内容请修改：jail_break_before.txt、jail_break_after.txt、jail_break_end.txt。
+  langbot_group_rule: false # 是否继承LangBot的群消息响应规则；若启用继承LangBot的群消息响应规则，模型会忽略不在响应规则内的群聊记录；默认规则为接收处理全部群聊记录。
   
   # 思考模块
+  conversation_analysis: False # 是否启用场景分析。分析可以更好的理解会话场景，但有可能造成无法回答专业问题的负面效果。
   display_thinking: false # 是否显示内心活动。
   analyze_max_conversations: 9 # 用于生成分析的最大对话数量。
   max_thinking_words: 30 # 最大思考字数，此配置不是硬性限制，该配置体现于提示语中。
@@ -273,6 +290,17 @@
   continued_max_count: 2 # 私聊最大延续发言次数。
   ```
   
+
+### 角色卡说明
+
+与角色卡相关的目录主要有两个
+1. `plugins\Waifu\templates\`
+此目录存放模板文件,在`data\plugins\Waifu\`下的文件都以此目录下的文件为模板生成.
+2. `data\plugins\Waifu\`
+`cards` 用来存放角色卡
+`config`存放配置文件
+`data`存放对话记录
+
 * cards/default_*.yaml (person/group)
   
   * 角色卡私聊与群聊通用。
@@ -312,15 +340,6 @@
       description:
         - 互动行为：你对用户产生了强烈的爱慕之情，我们进入了暧昧阶段。互动中表现出更多的情感投入和对用户的依赖，言语间透露出温柔和深情。
   ```
-### 角色卡
-与角色卡相关的目录主要有两个
-1. `plugins\Waifu\templates\`
-此目录存放模板文件,在`data\plugins\Waifu\`下的文件都以此目录下的文件为模板生成.
-2. `data\plugins\Waifu\`
-`cards` 用来存放角色卡
-`config`存放配置文件
-`data`存放对话记录
-
 
 #### 自定义角色卡
 ##### 1. 编写角色卡
@@ -346,14 +365,14 @@
 
 ## 协助开发
 
-1. clone QChatGPT
+1. clone LangBot
 2. clone Waifu
-3. 于QChatGPT新建目录plugins
-4. 将Waifu放在 ”QChatGPT\plugins\“ 目录下
+3. 于LangBot新建目录plugins
+4. 将Waifu放在 ”LangBot\plugins\“ 目录下
 
 ## 鸣谢🎉
 
-感谢 [QChatGPT](https://github.com/RockChinQ/QChatGPT) 提供Bot功能及其他基础方法
+感谢 [LangBot](https://github.com/RockChinQ/LangBot) 提供Bot功能及其他基础方法
 
 感谢 [LangGPT](https://github.com/langgptai/LangGPT) 提供人物预设提示词范式
 

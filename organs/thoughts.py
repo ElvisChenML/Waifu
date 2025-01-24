@@ -162,7 +162,7 @@ class Thoughts:
                     b64_str = ce.image_url.url
                     if b64_str.startswith("data:"):
                         b64_str = b64_str.split(",")[1]
-                    self.ap.logger.info(f"image b64: {b64_str}")
+                    self.ap.logger.info(f"image base64: {b64_str[:10]}...")
         analysis = await self._generator.return_image(new_content_list)
         msg = f"发送了图片:“{analysis}”。"
         if text_msg:
