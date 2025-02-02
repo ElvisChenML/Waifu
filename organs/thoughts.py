@@ -158,15 +158,17 @@ class Thoughts:
                 new_content_list.append(ce)
                 if ce.image_url.url.startswith("http"):
                     self.ap.logger.info(f"image url: {ce.image_url.url}")
-                else:  # base64
-                    b64_str = ce.image_url.url
-                    if b64_str.startswith("data:"):
-                        b64_str = b64_str.split(",")[1]
-                    self.ap.logger.info(f"image base64: {b64_str[:10]}...")
+            elif ce.type == "image_base64":
+                new_content_list.append(ce)
+                b64_str = ce.image_base64
+                if b64_str.startswith("data:"):
+                    b64_str = b64_str.split(",")[1]
+                self.ap.logger.info(f"image base64: {b64_str[:10]}...")
         analysis = await self._generator.return_image(new_content_list)
-        msg = f"发送了图片:“{analysis}”。"
+        msg = f"发送了图片:“{analysis}”"
         if text_msg:
-            msg += text_msg
+            msg += f"，并且说：“{text_msg}”"
+        msg += "。"
         return msg
 
     def set_jail_break(self, type: str, user_name: str):

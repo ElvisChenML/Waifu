@@ -88,7 +88,7 @@ class WaifuRunner(runner.RequestRunner):
         return
 
 
-@register(name="Waifu", description="Cuter than real waifu!", version="1.9.4", author="ElvisChenML")
+@register(name="Waifu", description="Cuter than real waifu!", version="1.9.5", author="ElvisChenML")
 class Waifu(BasePlugin):
 
     def __init__(self, host: APIHost):
@@ -652,7 +652,7 @@ class Waifu(BasePlugin):
                         content_list.append(llm_entities.ContentElement.from_image_url(str(me.url)))
                     elif me.base64 is not None:
                         has_image = True
-                        content_list.append(llm_entities.ContentElement.from_image_url(str(me.base64)))
+                        content_list.append(llm_entities.ContentElement.from_image_base64(str(me.base64)))
         if not has_image:
             return str(query.message_chain)
         else:
