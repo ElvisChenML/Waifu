@@ -188,6 +188,8 @@ class Generator:
         else:
             cleaned_response = response
         cleaned_response = self._remove_all_quotes(cleaned_response)
+        # 移除消息中的所有think标签及其内容
+        cleaned_response = self._remove_think_content(cleaned_response)
         # 删除特定破甲字符串
         cleaned_response = cleaned_response.replace("<结束无效提示>", "")
         # 删除回复中的时间戳
@@ -200,6 +202,25 @@ class Generator:
         pattern = r"[\"“‘\'「”’」]"
         # 使用正则表达式替换所有匹配的引号
         return re.sub(pattern, "", text)
+
+    def _remove_think_content(self, text: str) -> str:
+        pattern = r'<think>[\s\S]*?</think>'
+
+        result = text
+        iteration = 0
+        max_iterations = 10
+
+        while "<think>" in result and iteration < max_iterations:
+            if not re.findall(pattern, result):
+                break
+            result = re.sub(pattern, '', result)
+            result = re.sub(r'\n\s*\n', '\n', result.strip())
+            iteration += 1
+
+        if iteration >= max_iterations:
+            self.ap.logger.warning(f"达到最大迭代次数 {max_iterations}，可能存在异常标签")
+
+        return result
 
     def _parse_json_list(self, response: str, generate_tags: bool = False) -> list:
         try:

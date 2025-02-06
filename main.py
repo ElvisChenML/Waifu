@@ -73,6 +73,7 @@ class WaifuCache:
         self.bracket_rate = []
         self.group_response_delay = 3
         self.person_response_delay = 0
+        self.personate_delay = 0
         self.group_message_chain = None
         self.blacklist = []
 
@@ -88,7 +89,7 @@ class WaifuRunner(runner.RequestRunner):
         return
 
 
-@register(name="Waifu", description="Cuter than real waifu!", version="1.9.5", author="ElvisChenML")
+@register(name="Waifu", description="Cuter than real waifu!", version="1.9.6", author="ElvisChenML")
 class Waifu(BasePlugin):
 
     def __init__(self, host: APIHost):
@@ -209,6 +210,7 @@ class Waifu(BasePlugin):
         cache.bracket_rate = config_mgr.data.get("bracket_rate", [])
         cache.group_response_delay = config_mgr.data.get("group_response_delay", 10)
         cache.person_response_delay = config_mgr.data.get("person_response_delay", 0)
+        cache.personate_delay = config_mgr.data.get("personate_delay", 0)
         cache.continued_rate = config_mgr.data.get("continued_rate", 0.5)
         cache.continued_max_count = config_mgr.data.get("continued_max_count", 2)
         cache.blacklist = config_mgr.data.get("blacklist", [])
@@ -630,7 +632,10 @@ class Waifu(BasePlugin):
         for part in combined_parts:
             await self._reply(ctx, f"{part}", True)
             self.ap.logger.info(f"发送：{part}")
-            await asyncio.sleep(len(part) / 2)  # 根据字数计算延迟时间，假设每2个字符1秒
+            if config.personate_delay != 0:
+                await asyncio.sleep(config.personate_delay)
+            else:
+                await asyncio.sleep(len(part) / 2)  # 根据字数计算延迟时间，假设每2个字符1秒
 
     async def _vision(self, ctx: EventContext) -> str:
         # 参考自preproc.py PreProcessor
