@@ -10,7 +10,8 @@ from pkg.core import app
 from pkg.core import entities as core_entities
 from pkg.platform.types import message as platform_message
 from pkg.plugin.context import register, handler, BasePlugin, APIHost, EventContext
-from pkg.plugin.events import PersonMessageReceived, GroupMessageReceived, NormalMessageResponded, GroupNormalMessageReceived
+from pkg.plugin.events import PersonMessageReceived, GroupMessageReceived, NormalMessageResponded, \
+    GroupNormalMessageReceived
 from pkg.provider import entities as llm_entities
 from plugins.Waifu.cells.config import ConfigManager
 from plugins.Waifu.cells.generator import Generator
@@ -42,7 +43,6 @@ COMMANDS = {
 
 
 class WaifuCache:
-
     ap: app.Application
 
     def __init__(self, ap: app.Application, launcher_id: str, launcher_type: str):
@@ -98,6 +98,27 @@ class Waifu(BasePlugin):
         self.waifu_cache: typing.Dict[str, WaifuCache] = {}
         self._set_permissions_recursively("data/plugins/Waifu/", 0o777)
 
+    def remove_think_content(self, msg: str) -> str:
+        """移除消息中的所有think标签及其内容"""
+
+        pattern = r'<think>[\s\S]*?</think>'
+
+        result = msg
+        iteration = 0
+        max_iterations = 10
+
+        while "<think>" in result and iteration < max_iterations:
+            if not re.findall(pattern, result):
+                break
+            result = re.sub(pattern, '', result)
+            result = re.sub(r'\n\s*\n', '\n', result.strip())
+            iteration += 1
+
+        if iteration >= max_iterations:
+            self.ap.logger.warning(f"达到最大迭代次数 {max_iterations}，可能存在异常标签")
+
+        return result
+
     async def initialize(self):
         await self._set_waifu_runner()
         # 为新用户创建配置文件
@@ -113,7 +134,7 @@ class Waifu(BasePlugin):
         访问控制检查，根据配置判断是否允许继续处理
         :param ctx: 包含事件上下文信息的 EventContext 对象
         :return: True if allowed to continue, False otherwise
-        """      
+        """
         text_message = str(ctx.event.query.message_chain)
         launcher_id = ctx.event.launcher_id
         sender_id = ctx.event.sender_id
@@ -128,7 +149,8 @@ class Waifu(BasePlugin):
         mode = self.ap.pipeline_cfg.data["access-control"]["mode"]
         sess_list = set(self.ap.pipeline_cfg.data["access-control"].get(mode, []))
 
-        found = (launcher_type == "group" and "group_*" in sess_list) or (launcher_type == "person" and "person_*" in sess_list) or f"{launcher_type}_{launcher_id}" in sess_list
+        found = (launcher_type == "group" and "group_*" in sess_list) or (
+                launcher_type == "person" and "person_*" in sess_list) or f"{launcher_type}_{launcher_id}" in sess_list
 
         if (mode == "whitelist" and not found) or (mode == "blacklist" and found):
             reason = "不在白名单中" if mode == "whitelist" else "在黑名单中"
@@ -341,7 +363,8 @@ class Waifu(BasePlugin):
             need_save_memory = True
 
         if response:
-            await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, platform_message.MessageChain([str(response)]), False)
+            await ctx.event.query.adapter.reply_message(ctx.event.query.message_event,
+                                                        platform_message.MessageChain([str(response)]), False)
         return need_assistant_reply, need_save_memory
 
     def _list_commands(self) -> str:
@@ -391,13 +414,15 @@ class Waifu(BasePlugin):
         launcher_id = ctx.event.launcher_id
         config = self.waifu_cache[launcher_id]
         need_assistant_reply = False
-        if config.group_message_chain and config.group_message_chain.has(platform_message.At(ctx.event.query.adapter.bot_account_id)):
+        if config.group_message_chain and config.group_message_chain.has(
+                platform_message.At(ctx.event.query.adapter.bot_account_id)):
             need_assistant_reply = True
         if config.unreplied_count >= config.memory.response_min_conversations:
             if random.random() < config.response_rate:
                 need_assistant_reply = True
         else:
-            self.ap.logger.info(f"群聊{launcher_id}还差{config.memory.response_min_conversations - config.unreplied_count}条消息触发回复")
+            self.ap.logger.info(
+                f"群聊{launcher_id}还差{config.memory.response_min_conversations - config.unreplied_count}条消息触发回复")
 
         config.group_message_chain = None
         if need_assistant_reply:
@@ -450,11 +475,16 @@ class Waifu(BasePlugin):
         config.unreplied_count = 0
         user_prompt = config.memory.get_normalize_short_term_memory()  # 默认为当前short_term_memory_size条聊天记录
         if config.thinking_mode_flag:
-            user_prompt, analysis = await config.thoughts.generate_group_prompt(config.memory, config.cards, unreplied_count)
+            user_prompt, analysis = await config.thoughts.generate_group_prompt(config.memory, config.cards,
+                                                                                unreplied_count)
             if config.display_thinking and config.conversation_analysis_flag:
                 await self._reply(ctx, f"【分析】：{analysis}")
         self._generator.set_speakers([config.memory.assistant_name])
         response = await self._generator.return_chat(user_prompt, system_prompt)
+
+        # 移除think标签及其内容
+        response = self.remove_think_content(response)
+
         await config.memory.save_memory(role="assistant", content=response)
 
         if config.personate_mode:
@@ -533,6 +563,10 @@ class Waifu(BasePlugin):
         system_prompt = config.memory.to_custom_names(config.cards.generate_system_prompt())
         self._generator.set_speakers([config.memory.assistant_name])
         response = await self._generator.return_chat(user_prompt, system_prompt)
+
+        # 移除think标签及其内容
+        response = self.remove_think_content(response)
+
         await config.memory.save_memory(role="assistant", content=response)
 
         if config.personate_mode:
@@ -558,7 +592,8 @@ class Waifu(BasePlugin):
         if launcher_id in self.waifu_cache and self.waifu_cache[launcher_id].launcher_timer_tasks:
             self.waifu_cache[launcher_id].launcher_timer_tasks.cancel()
 
-        self.waifu_cache[launcher_id].launcher_timer_tasks = asyncio.create_task(self._timed_narration_task(ctx, launcher_id))
+        self.waifu_cache[launcher_id].launcher_timer_tasks = asyncio.create_task(
+            self._timed_narration_task(ctx, launcher_id))
 
     async def _timed_narration_task(self, ctx: EventContext, launcher_id: str):
         try:
@@ -665,7 +700,8 @@ class Waifu(BasePlugin):
 
     async def _reply(self, ctx: EventContext, response: str, event_trigger: bool = False):
         response_fixed = self._remove_blank_lines(response)
-        await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, platform_message.MessageChain([f"{response_fixed}"]), False)
+        await ctx.event.query.adapter.reply_message(ctx.event.query.message_event,
+                                                    platform_message.MessageChain([f"{response_fixed}"]), False)
         if event_trigger:
             await self._emit_responded_event(ctx, response_fixed)
 
