@@ -91,7 +91,7 @@ class WaifuRunner(runner.RequestRunner):
 
 @register(name="Waifu", description="Cuter than real waifu!", version="1.9.6", author="ElvisChenML")
 class Waifu(BasePlugin):
-
+    bot_account_id: int
     def __init__(self, host: APIHost):
         self.ap = host.ap
         self._ensure_required_files_exist()
@@ -115,6 +115,7 @@ class Waifu(BasePlugin):
         :param ctx: 包含事件上下文信息的 EventContext 对象
         :return: True if allowed to continue, False otherwise
         """      
+        self.bot_account_id = ctx.event.query.adapter.bot_account_id
         text_message = str(ctx.event.query.message_chain)
         launcher_id = ctx.event.launcher_id
         sender_id = ctx.event.sender_id
@@ -237,7 +238,9 @@ class Waifu(BasePlugin):
                     await runner_mgr.using_runner.initialize()
                     break
             else:
-                raise Exception("Runner 'waifu-mode' not found in preregistered_runners.")
+                raise Exception(
+                    "Runner 'waifu-mode' not found in preregistered_runners."
+                )
 
     async def _handle_command(self, ctx: EventContext) -> typing.Tuple[bool, bool]:
         need_assistant_reply = False
@@ -452,7 +455,7 @@ class Waifu(BasePlugin):
         config.unreplied_count = 0
         user_prompt = config.memory.get_normalize_short_term_memory()  # 默认为当前short_term_memory_size条聊天记录
         if config.thinking_mode_flag:
-            user_prompt, analysis = await config.thoughts.generate_group_prompt(config.memory, config.cards, unreplied_count)
+            user_prompt, analysis = await config.thoughts.generate_group_prompt(config.memory, config.cards, unreplied_count,self.bot_account_id)
             if config.display_thinking and config.conversation_analysis_flag:
                 await self._reply(ctx, f"【分析】：{analysis}")
         self._generator.set_speakers([config.memory.assistant_name])
