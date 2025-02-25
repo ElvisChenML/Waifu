@@ -16,7 +16,7 @@ from plugins.Waifu.cells.config import ConfigManager
 class Memory:
 
     ap: app.Application
-
+    bot_account_id: int
     def __init__(self, ap: app.Application, launcher_id: str, launcher_type: str):
         self.ap = ap
         self.short_term_memory: typing.List[llm_entities.Message] = []
@@ -121,7 +121,7 @@ class Memory:
             user_prompt_summary = f"""总结以下对话中的最重要细节和事件: "{conversations_str}"。将总结限制在200字以内。总结应使用中文书写，并以过去式书写。你的回答应仅包含总结。"""
         else:
             conversations_str = self.get_conversations_str_for_group(conversations)
-        user_prompt_summary = f"""总结以下对话中的最重要细节和事件: "{conversations_str}"。将总结限制在200字以内。总结应使用中文书写，并以过去式书写。你的回答应仅包含总结。"""
+            user_prompt_summary = f"""总结以下对话中的最重要细节和事件: "{conversations_str}"。将总结限制在200字以内。总结应使用中文书写，其中@{self.bot_account_id}为对你说的话，或对你的动作，并以过去式书写。你的回答应仅包含总结。"""
 
         return await self._generator.return_string(user_prompt_summary)
 
