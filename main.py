@@ -141,7 +141,8 @@ class Waifu(BasePlugin):
         if launcher_id not in self.waifu_cache:
             await self._load_config(launcher_id, ctx.event.launcher_type)
         waifu_data = self.waifu_cache.get(launcher_id, None)
-
+        if waifu_data:
+            waifu_data.memory.bot_account_id = self.bot_account_id
         # 继承LangBot的群消息响应规则时忽略 GroupMessageReceived 信号
         if event_type == "GMR" and waifu_data.langbot_group_rule == True:
             return False
@@ -448,7 +449,7 @@ class Waifu(BasePlugin):
             related_memories = await config.memory.load_memory(unreplied_conversations)
             if related_memories:
                 config.cards.set_memory(related_memories)
-
+        # 如果是群聊则不修改为自定义角色名
         system_prompt = config.memory.to_custom_names(config.cards.generate_system_prompt())
         # 备份然后重置避免回复过程中接收到新讯息导致计数错误
         unreplied_count = config.unreplied_count
