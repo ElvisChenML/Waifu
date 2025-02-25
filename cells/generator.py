@@ -219,7 +219,11 @@ class Generator:
 
         if iteration >= max_iterations:
             self.ap.logger.warning(f"达到最大迭代次数 {max_iterations}，可能存在异常标签")
-
+        # 针对启航API的返回信息不全的处理
+        if "<think>" in result:
+            self.ap.logger.warning("未能完全删除think标签")
+            self.ap.logger.warning(result)
+            result = "喵~"
         return result
 
     def _parse_json_list(self, response: str, generate_tags: bool = False) -> list:
