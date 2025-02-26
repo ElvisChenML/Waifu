@@ -223,7 +223,7 @@ class Generator:
         if "<think>" in result:
             self.ap.logger.warning("未能完全删除think标签")
             self.ap.logger.warning(result)
-            result = "喵~"
+            result = ""
         return result
 
     def _parse_json_list(self, response: str, generate_tags: bool = False) -> list:
