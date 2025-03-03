@@ -76,6 +76,7 @@ class WaifuCache:
         self.personate_delay = 0
         self.group_message_chain = None
         self.blacklist = []
+        self.ignore_prefix = []
 
 
 @runner.runner_class("waifu-mode")
@@ -89,7 +90,7 @@ class WaifuRunner(runner.RequestRunner):
         return
 
 
-@register(name="Waifu", description="Cuter than real waifu!", version="1.9.6", author="ElvisChenML")
+@register(name="Waifu", description="Cuter than real waifu!", version="1.9.7", author="ElvisChenML")
 class Waifu(BasePlugin):
     def __init__(self, host: APIHost):
         self.ap = host.ap
@@ -99,10 +100,13 @@ class Waifu(BasePlugin):
         self._set_permissions_recursively("data/plugins/Waifu/", 0o777)
 
     async def initialize(self):
-        await self._set_waifu_runner()
+        await self._set_runner("waifu-mode")
         # 为新用户创建配置文件
         config_mgr = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu")
         await config_mgr.load_config(completion=True)
+
+    async def destroy(self):
+        await self._set_runner(self.ap.provider_cfg.data['runner'])
 
     # @handler(NormalMessageResponded)
     # async def normal_message_responded(self, ctx: EventContext):
@@ -152,6 +156,10 @@ class Waifu(BasePlugin):
         # 排除主项目命令
         cmd_prefix = self.ap.command_cfg.data.get("command-prefix", [])
         if any(text_message.startswith(prefix) for prefix in cmd_prefix):
+            return False
+        
+        # 排除特定前缀
+        if waifu_data and any(text_message.startswith(prefix) for prefix in waifu_data.ignore_prefix):
             return False
 
         # Waifu 群聊成员黑名单
@@ -216,6 +224,7 @@ class Waifu(BasePlugin):
         cache.continued_max_count = config_mgr.data.get("continued_max_count", 2)
         cache.blacklist = config_mgr.data.get("blacklist", [])
         cache.langbot_group_rule = config_mgr.data.get("langbot_group_rule", False)
+        cache.ignore_prefix = config_mgr.data.get("ignore_prefix", [])
 
         await cache.memory.load_config(character, launcher_id, launcher_type)
         await cache.value_game.load_config(character, launcher_id, launcher_type)
@@ -228,18 +237,19 @@ class Waifu(BasePlugin):
 
         self._set_permissions_recursively("data/plugins/Waifu/", 0o777)
 
-    async def _set_waifu_runner(self):
-        """用于设置 RunnerManager 的 using_runner 为 waifu-mode"""
+    async def _set_runner(self, runner_name: str):
+        """用于设置 RunnerManager 的 using_runner"""
         runner_mgr = self.ap.runner_mgr
         if runner_mgr:
             for r in runner.preregistered_runners:
-                if r.name == "waifu-mode":
+                if r.name == runner_name:
                     runner_mgr.using_runner = r(self.ap)
                     await runner_mgr.using_runner.initialize()
+                    self.ap.logger.info(f"已设置运行器为 {runner_name}")
                     break
             else:
                 raise Exception(
-                    "Runner 'waifu-mode' not found in preregistered_runners."
+                    f"Runner '{runner_name}' not found in preregistered_runners."
                 )
 
     async def _handle_command(self, ctx: EventContext) -> typing.Tuple[bool, bool]:
@@ -595,7 +605,7 @@ class Waifu(BasePlugin):
 
     async def _send_personate_reply(self, ctx: EventContext, response: str):
         config = self.waifu_cache[ctx.event.launcher_id]
-        parts = re.split(r"([，。？！,.?!\n~〜])", response)  # 保留分隔符
+        parts = re.split(r"(?<!\d)[，。？！,.?!\n~〜](?!\d)", response)  # 保留分隔符(避免分割小数)
         combined_parts = []
         temp_part = ""
 

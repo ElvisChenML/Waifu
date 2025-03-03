@@ -16,10 +16,10 @@ from plugins.Waifu.cells.config import ConfigManager
 class Memory:
 
     ap: app.Application
-    bot_account_id: int
     def __init__(self, ap: app.Application, launcher_id: str, launcher_type: str):
         self.ap = ap
         self.short_term_memory: typing.List[llm_entities.Message] = []
+        self.bot_account_id = 0
         self.analyze_max_conversations = 9
         self.narrate_max_conversations = 8
         self.value_game_max_conversations = 5
