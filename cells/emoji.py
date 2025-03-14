@@ -141,8 +141,10 @@ class EmojiManager:
             # 构建完整的表情包路径
             emoji_path = os.path.join(self.emoji_dir, emoji_file)
             
-            # 使用 Image.from_local 创建图片消息
-            image = platform_message.Image.from_local(emoji_path)
+            # 修改为使用 platform_message.Image 创建图片消息，参考 BailianTextToImagePlugin.py
+            # 从本地文件创建图片对象
+            image = platform_message.Image(path=emoji_path)
+            
             # 确保返回的是一个有效的MessageChain对象
             return platform_message.MessageChain([platform_message.Plain(text), image])
         except Exception as e:
