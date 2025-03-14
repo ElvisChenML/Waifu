@@ -94,7 +94,7 @@ class WaifuRunner(runner.RequestRunner):
         return
 
 
-@register(name="Waifu", description="Cuter than real waifu!", version="2.0.1", author="ElvisChenML")
+@register(name="Waifu", description="Cuter than real waifu!", version="2.0.2", author="ElvisChenML")
 class Waifu(BasePlugin):
     # 修改 __init__ 方法，初始化表情包管理器
     def __init__(self, host: APIHost):
@@ -729,6 +729,7 @@ class Waifu(BasePlugin):
         try:
             if config and config.use_emoji and event_trigger:
                 # 使用大模型分析情绪并获取表情包
+                # 确保正确等待异步操作完成
                 message_chain = await self._emoji_manager.create_emoji_message(
                     response_fixed, 
                     self._generator, 

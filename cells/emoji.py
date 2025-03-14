@@ -107,7 +107,7 @@ class EmojiManager:
         except Exception as e:
             self.ap.logger.error(f"使用大模型分析情绪失败: {e}")
             # 失败时回退到随机选择
-            return random.choice(available_emotions)
+            return random.choice(available_emotions) if available_emotions else None
 
     async def create_emoji_message(self, text, generator, emoji_rate=1.0):
         """创建带表情包的消息
@@ -141,4 +141,3 @@ class EmojiManager:
             return platform_message.MessageChain([platform_message.Plain(text), image])
         except Exception as e:
             self.ap.logger.error(f"加载表情包失败: {e}")
-            return platform_message.MessageChain([platform_message.Plain(text)])
