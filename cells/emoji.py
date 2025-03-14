@@ -75,28 +75,38 @@ class EmojiManager:
                 try:
                     data = response.json()
                     
-                    if data.get("code") == 200:
-                        images = data.get("data", {}).get("images", [])
+                    # 根据实际API响应格式调整解析逻辑
+                    if "docs" in data:
+                        images = data.get("docs", [])
                         
                         # 清空现有缓存
                         self.superbed_image_cache = {}
                         
                         # 处理图片数据
                         for image in images:
-                            # 从文件名中提取情绪标签
+                            # 从文件名中提取情绪标签 (如果有的话)
                             filename = image.get("filename", "")
-                            emotion = os.path.splitext(filename)[0]
+                            if not filename and "url" in image:
+                                # 如果没有filename，尝试从URL中提取
+                                url_path = image.get("url", "")
+                                filename = os.path.basename(url_path)
+                            
+                            emotion = os.path.splitext(filename)[0] if filename else ""
+                            
+                            # 如果没有情绪标签，使用默认分类
+                            if not emotion:
+                                emotion = "default"
                             
                             # 获取图片URL
                             image_url = image.get("url")
-                            if image_url and emotion:
+                            if image_url:
                                 if emotion not in self.superbed_image_cache:
                                     self.superbed_image_cache[emotion] = []
                                 self.superbed_image_cache[emotion].append(image_url)
                         
                         self.ap.logger.info(f"已从聚合图床加载 {sum(len(urls) for urls in self.superbed_image_cache.values())} 个表情包")
                     else:
-                        self.ap.logger.warning(f"从聚合图床加载图片失败: {data.get('message')}, 错误码: {data.get('code')}")
+                        self.ap.logger.warning(f"从聚合图床加载图片失败: 响应格式不符合预期: {data}")
                 except json.JSONDecodeError as json_err:
                     self.ap.logger.error(f"解析聚合图床API响应JSON失败: {json_err}, 响应内容: {response_text[:200]}")
             else:
