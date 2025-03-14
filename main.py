@@ -39,6 +39,7 @@ COMMANDS = {
     "请选择": "调试：从给定列表中选择，用法：[请选择][问题]|[选项1,选项2,……]。",
     "回答数字": "调试：返回数字答案，用法：[回答数字][问题]。",
     "回答问题": "调试：可自定系统提示的问答模式，用法：[回答问题][系统提示语]|[用户提示语] / [回答问题][用户提示语]。",
+    "加载表情": "重新加载表情包，用法：[加载表情]。",
     "表情开关": "开启或关闭表情包功能，用法：[表情开关]。",
 }
 
@@ -92,7 +93,7 @@ class WaifuRunner(runner.RequestRunner):
         return
 
 
-@register(name="Waifu", description="Cuter than real waifu!", version="1.9.7", author="ElvisChenML")
+@register(name="Waifu", description="Cuter than real waifu!", version="1.9.8", author="ElvisChenML")
 class Waifu(BasePlugin):
     # 修改 __init__ 方法，初始化表情包管理器
     def __init__(self, host: APIHost):
@@ -314,6 +315,14 @@ class Waifu(BasePlugin):
             launcher_type = ctx.event.launcher_type
             await self._load_config(launcher_id, launcher_type)
             response = "配置已重载"
+        # 添加表情包相关命令
+        elif msg == "加载表情":
+            response = self._emoji_manager.reload_emojis()
+        elif msg == "表情开关":
+            config.use_emoji = not config.use_emoji
+            status = "开启" if config.use_emoji else "关闭"
+            response = f"表情包功能已{status}"
+        # 继续处理其他命令
         elif msg == "停止活动":
             response = self._stop_timer(launcher_id)
         elif msg == "开场场景":
