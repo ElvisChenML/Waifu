@@ -94,7 +94,7 @@ class WaifuRunner(runner.RequestRunner):
         return
 
 
-@register(name="Waifu", description="Cuter than real waifu!", version="2.0.0", author="ElvisChenML")
+@register(name="Waifu", description="Cuter than real waifu!", version="2.0.1", author="ElvisChenML")
 class Waifu(BasePlugin):
     # 修改 __init__ 方法，初始化表情包管理器
     def __init__(self, host: APIHost):
@@ -634,7 +634,7 @@ class Waifu(BasePlugin):
         parts = re.split(r"(?<!\d)[，。？！,.?!\n~〜](?!\d)", response)  # 保留分隔符(避免分割小数)
         combined_parts = []
         temp_part = ""
-    
+
         for part in parts:
             part = part.strip()
             if not part:
@@ -719,7 +719,6 @@ class Waifu(BasePlugin):
         non_blank_lines = [line for line in lines if line.strip() != ""]
         return "\n".join(non_blank_lines)
 
-    # 修改 _reply 方法，支持表情包
     async def _reply(self, ctx: EventContext, response: str, event_trigger: bool = False):
         response_fixed = self._remove_blank_lines(response)
         
@@ -730,19 +729,29 @@ class Waifu(BasePlugin):
         try:
             if config and config.use_emoji and event_trigger:
                 # 使用大模型分析情绪并获取表情包
-                message_chain = await self._emoji_manager.create_emoji_message(response_fixed, self._generator, config.emoji_rate)
+                message_chain = await self._emoji_manager.create_emoji_message(
+                    response_fixed, 
+                    self._generator, 
+                    config.emoji_rate
+                )
                 await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, message_chain, False)
             else:
-                await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, 
-                                                          platform_message.MessageChain([platform_message.Plain(response_fixed)]), False)
+                await ctx.event.query.adapter.reply_message(
+                    ctx.event.query.message_event, 
+                    platform_message.MessageChain([platform_message.Plain(response_fixed)]), 
+                    False
+                )
             
             if event_trigger:
                 await self._emit_responded_event(ctx, response_fixed)
         except Exception as e:
             self.ap.logger.error(f"回复消息时出错: {e}")
             # 出错时尝试使用纯文本回复
-            await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, 
-                                                      platform_message.MessageChain([platform_message.Plain(response_fixed)]), False)
+            await ctx.event.query.adapter.reply_message(
+                ctx.event.query.message_event, 
+                platform_message.MessageChain([platform_message.Plain(response_fixed)]), 
+                False
+            )
             if event_trigger:
                 await self._emit_responded_event(ctx, response_fixed)
 

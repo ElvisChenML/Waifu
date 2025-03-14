@@ -88,8 +88,9 @@ class EmojiManager:
 请只回复一个表情名称，不要添加任何其他内容。"""
         
         try:
-            # 调用大模型获取表情
-            emotion = await generator.return_string(prompt, [], "你是一个情感分析专家，擅长从文本中识别情绪并选择合适的表情")
+            # 修正参数数量，根据Generator.return_string的实际参数要求调整
+            system_prompt = "你是一个情感分析专家，擅长从文本中识别情绪并选择合适的表情"
+            emotion = await generator.return_string(prompt, system_prompt)
             emotion = emotion.strip()
             
             # 检查返回的表情是否在可用列表中
@@ -123,18 +124,18 @@ class EmojiManager:
         if random.random() > emoji_rate:
             return platform_message.MessageChain([platform_message.Plain(text)])
             
-        # 使用大模型分析情绪
-        emotion = await self.analyze_emotion_with_llm(text, generator)
-        emoji_file = self.get_emoji_for_emotion(emotion)
-        
-        if not emoji_file:
-            # 如果没有匹配的表情包，只返回文本
-            return platform_message.MessageChain([platform_message.Plain(text)])
-        
-        # 构建完整的表情包路径
-        emoji_path = os.path.join(self.emoji_dir, emoji_file)
-        
         try:
+            # 使用大模型分析情绪
+            emotion = await self.analyze_emotion_with_llm(text, generator)
+            emoji_file = self.get_emoji_for_emotion(emotion)
+            
+            if not emoji_file:
+                # 如果没有匹配的表情包，只返回文本
+                return platform_message.MessageChain([platform_message.Plain(text)])
+            
+            # 构建完整的表情包路径
+            emoji_path = os.path.join(self.emoji_dir, emoji_file)
+            
             # 使用 Image.from_local 创建图片消息
             image = platform_message.Image.from_local(emoji_path)
             return platform_message.MessageChain([platform_message.Plain(text), image])
