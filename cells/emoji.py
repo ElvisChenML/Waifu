@@ -1,6 +1,7 @@
 import os
 import random
 import re
+import json
 import requests
 from pkg.core import app
 from pkg.platform.types import message as platform_message
@@ -16,10 +17,12 @@ class EmojiManager:
         self.emoji_dir = "data/plugins/Waifu/images"
         self.emoji_cache = {}
         self.superbed_token = "123456789"  # 请替换为您的实际token
+        self.use_superbed = True  # 设置为False可以暂时禁用聚合图床功能
         self.superbed_image_cache = {}  # 缓存图床中的图片
         self._ensure_emoji_dir_exists()
         self._load_emojis()
-        self._load_superbed_images()
+        if self.use_superbed:
+            self._load_superbed_images()
         self.last_emoji_time = 0  # 上次发送表情包的时间
 
     def _ensure_emoji_dir_exists(self):
@@ -54,33 +57,52 @@ class EmojiManager:
                 "size": 100  # 获取最多100张图片
             }
             
+            self.ap.logger.info(f"正在从聚合图床加载图片，URL: {url}")
+            
             response = requests.get(url, params=params)
+            self.ap.logger.info(f"聚合图床API响应状态码: {response.status_code}")
+            
             if response.status_code == 200:
-                data = response.json()
-                if data.get("code") == 200:
-                    images = data.get("data", {}).get("images", [])
+                # 打印原始响应内容，帮助调试
+                response_text = response.text
+                self.ap.logger.info(f"聚合图床API响应内容前100个字符: {response_text[:100] if response_text else '空响应'}")
+                
+                # 检查响应是否为空
+                if not response_text:
+                    self.ap.logger.warning("聚合图床API返回了空响应")
+                    return
                     
-                    # 清空现有缓存
-                    self.superbed_image_cache = {}
+                try:
+                    data = response.json()
                     
-                    # 处理图片数据
-                    for image in images:
-                        # 从文件名中提取情绪标签
-                        filename = image.get("filename", "")
-                        emotion = os.path.splitext(filename)[0]
+                    if data.get("code") == 200:
+                        images = data.get("data", {}).get("images", [])
                         
-                        # 获取图片URL
-                        image_url = image.get("url")
-                        if image_url and emotion:
-                            if emotion not in self.superbed_image_cache:
-                                self.superbed_image_cache[emotion] = []
-                            self.superbed_image_cache[emotion].append(image_url)
-                    
-                    self.ap.logger.info(f"已从聚合图床加载 {sum(len(urls) for urls in self.superbed_image_cache.values())} 个表情包")
-                else:
-                    self.ap.logger.warning(f"从聚合图床加载图片失败: {data.get('message')}")
+                        # 清空现有缓存
+                        self.superbed_image_cache = {}
+                        
+                        # 处理图片数据
+                        for image in images:
+                            # 从文件名中提取情绪标签
+                            filename = image.get("filename", "")
+                            emotion = os.path.splitext(filename)[0]
+                            
+                            # 获取图片URL
+                            image_url = image.get("url")
+                            if image_url and emotion:
+                                if emotion not in self.superbed_image_cache:
+                                    self.superbed_image_cache[emotion] = []
+                                self.superbed_image_cache[emotion].append(image_url)
+                        
+                        self.ap.logger.info(f"已从聚合图床加载 {sum(len(urls) for urls in self.superbed_image_cache.values())} 个表情包")
+                    else:
+                        self.ap.logger.warning(f"从聚合图床加载图片失败: {data.get('message')}, 错误码: {data.get('code')}")
+                except json.JSONDecodeError as json_err:
+                    self.ap.logger.error(f"解析聚合图床API响应JSON失败: {json_err}, 响应内容: {response_text[:200]}")
             else:
-                self.ap.logger.warning(f"从聚合图床加载图片失败: {response.status_code}")
+                self.ap.logger.warning(f"从聚合图床加载图片失败，HTTP状态码: {response.status_code}, 响应内容: {response.text[:200]}")
+        except requests.RequestException as req_err:
+            self.ap.logger.error(f"请求聚合图床API时出错: {req_err}")
         except Exception as e:
             self.ap.logger.error(f"从聚合图床加载图片时出错: {e}")
 

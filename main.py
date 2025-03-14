@@ -94,7 +94,7 @@ class WaifuRunner(runner.RequestRunner):
         return
 
 
-@register(name="Waifu", description="Cuter than real waifu!", version="2.0.5", author="ElvisChenML")
+@register(name="Waifu", description="Cuter than real waifu!", version="2.0.6", author="ElvisChenML")
 class Waifu(BasePlugin):
     # 修改 __init__ 方法，初始化表情包管理器
     def __init__(self, host: APIHost):
@@ -233,9 +233,11 @@ class Waifu(BasePlugin):
         cache.blacklist = config_mgr.data.get("blacklist", [])
         cache.langbot_group_rule = config_mgr.data.get("langbot_group_rule", False)
         cache.ignore_prefix = config_mgr.data.get("ignore_prefix", [])
-        cache.use_emoji = config_mgr.data.get("use_emoji", True)  # 加载表情包配置
-        cache.emoji_rate = config_mgr.data.get("emoji_rate", 0.5)  # 加载表情包频率配置
-
+        # 在_load_config方法中添加
+        cache.use_emoji = config_mgr.data.get("use_emoji", True)
+        cache.emoji_rate = config_mgr.data.get("emoji_rate", 0.5)
+        self._emoji_manager.use_superbed = config_mgr.data.get("use_superbed", True)  # 默认不使用聚合图床
+        self._emoji_manager.superbed_token = config_mgr.data.get("superbed_token", "123456789")
         await cache.memory.load_config(character, launcher_id, launcher_type)
         await cache.value_game.load_config(character, launcher_id, launcher_type)
         await cache.cards.load_config(character, launcher_type)
