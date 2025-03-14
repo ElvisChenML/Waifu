@@ -727,16 +727,25 @@ class Waifu(BasePlugin):
         launcher_id = ctx.event.launcher_id
         config = self.waifu_cache.get(launcher_id)
         
-        if config and config.use_emoji and event_trigger:
-            # 分析文本情绪并获取表情包
-            emotion = self._emoji_manager.analyze_emotion(response_fixed)
-            message_chain = self._emoji_manager.create_emoji_message(response_fixed, emotion, config.emoji_rate)
-            await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, message_chain, False)
-        else:
-            await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, platform_message.MessageChain([f"{response_fixed}"]), False)
-        
-        if event_trigger:
-            await self._emit_responded_event(ctx, response_fixed)
+        try:
+            if config and config.use_emoji and event_trigger:
+                # 分析文本情绪并获取表情包
+                emotion = self._emoji_manager.analyze_emotion(response_fixed)
+                message_chain = self._emoji_manager.create_emoji_message(response_fixed, emotion, config.emoji_rate)
+                await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, message_chain, False)
+            else:
+                await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, 
+                                                          platform_message.MessageChain([platform_message.Plain(response_fixed)]), False)
+            
+            if event_trigger:
+                await self._emit_responded_event(ctx, response_fixed)
+        except Exception as e:
+            self.ap.logger.error(f"回复消息时出错: {e}")
+            # 出错时尝试使用纯文本回复
+            await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, 
+                                                      platform_message.MessageChain([platform_message.Plain(response_fixed)]), False)
+            if event_trigger:
+                await self._emit_responded_event(ctx, response_fixed)
 
     async def _emit_responded_event(self, ctx: EventContext, response: str):
         query = ctx.event.query

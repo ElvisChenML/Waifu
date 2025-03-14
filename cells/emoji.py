@@ -103,12 +103,12 @@ class EmojiManager:
         """
         # 根据频率决定是否发送表情包
         if random.random() > emoji_rate:
-            return platform_message.MessageChain([text])
+            return platform_message.MessageChain([platform_message.Plain(text)])
             
         emoji_file = self.get_emoji_for_emotion(emotion)
         if not emoji_file:
             # 如果没有匹配的表情包，只返回文本
-            return platform_message.MessageChain([text])
+            return platform_message.MessageChain([platform_message.Plain(text)])
         
         # 构建完整的表情包路径
         emoji_path = os.path.join(self.emoji_dir, emoji_file)
@@ -116,7 +116,7 @@ class EmojiManager:
         try:
             # 使用 Image.from_local 创建图片消息
             image = platform_message.Image.from_local(emoji_path)
-            return platform_message.MessageChain([text, image])
+            return platform_message.MessageChain([platform_message.Plain(text), image])
         except Exception as e:
             self.ap.logger.error(f"加载表情包失败: {e}")
-            return platform_message.MessageChain([text])
+            return platform_message.MessageChain([platform_message.Plain(text)])
