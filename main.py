@@ -15,6 +15,7 @@ from pkg.provider import entities as llm_entities
 from plugins.Waifu.cells.config import ConfigManager
 from plugins.Waifu.cells.generator import Generator
 from plugins.Waifu.cells.cards import Cards
+from plugins.Waifu.cells.emoji import EmojiManager
 from plugins.Waifu.organs.memories import Memory
 from plugins.Waifu.systems.narrator import Narrator
 from plugins.Waifu.systems.value_game import ValueGame
@@ -38,8 +39,8 @@ COMMANDS = {
     "请选择": "调试：从给定列表中选择，用法：[请选择][问题]|[选项1,选项2,……]。",
     "回答数字": "调试：返回数字答案，用法：[回答数字][问题]。",
     "回答问题": "调试：可自定系统提示的问答模式，用法：[回答问题][系统提示语]|[用户提示语] / [回答问题][用户提示语]。",
+    "表情开关": "开启或关闭表情包功能，用法：[表情开关]。",
 }
-
 
 class WaifuCache:
 
@@ -77,6 +78,7 @@ class WaifuCache:
         self.group_message_chain = None
         self.blacklist = []
         self.ignore_prefix = []
+        self.use_emoji = True  # 是否使用表情包
 
 
 @runner.runner_class("waifu-mode")
@@ -92,11 +94,13 @@ class WaifuRunner(runner.RequestRunner):
 
 @register(name="Waifu", description="Cuter than real waifu!", version="1.9.7", author="ElvisChenML")
 class Waifu(BasePlugin):
+    # 修改 __init__ 方法，初始化表情包管理器
     def __init__(self, host: APIHost):
         self.ap = host.ap
         self._ensure_required_files_exist()
         self._generator = Generator(self.ap)
         self.waifu_cache: typing.Dict[str, WaifuCache] = {}
+        self._emoji_manager = EmojiManager(self.ap)  # 初始化表情包管理器
         self._set_permissions_recursively("data/plugins/Waifu/", 0o777)
 
     async def initialize(self):
@@ -104,6 +108,8 @@ class Waifu(BasePlugin):
         # 为新用户创建配置文件
         config_mgr = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu")
         await config_mgr.load_config(completion=True)
+        # 确保表情包目录存在
+        os.makedirs("data/plugins/Waifu/images", exist_ok=True)
 
     async def destroy(self):
         await self._set_runner(self.ap.provider_cfg.data['runner'])
@@ -193,10 +199,11 @@ class Waifu(BasePlugin):
         if need_assistant_reply:
             await self._request_group_reply(ctx)
 
+    # 修改 _load_config 方法，加载表情包配置
     async def _load_config(self, launcher_id: str, launcher_type: str):
         self.waifu_cache[launcher_id] = WaifuCache(self.ap, launcher_id, launcher_type)
         cache = self.waifu_cache[launcher_id]
-
+    
         config_mgr = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu", launcher_id)
         await config_mgr.load_config(completion=True)
 
@@ -225,6 +232,7 @@ class Waifu(BasePlugin):
         cache.blacklist = config_mgr.data.get("blacklist", [])
         cache.langbot_group_rule = config_mgr.data.get("langbot_group_rule", False)
         cache.ignore_prefix = config_mgr.data.get("ignore_prefix", [])
+        cache.use_emoji = config_mgr.data.get("use_emoji", True)  # 加载表情包配置
 
         await cache.memory.load_config(character, launcher_id, launcher_type)
         await cache.value_game.load_config(character, launcher_id, launcher_type)
@@ -252,6 +260,7 @@ class Waifu(BasePlugin):
                     f"Runner '{runner_name}' not found in preregistered_runners."
                 )
 
+    # 修改 _handle_command 方法，添加表情包相关命令
     async def _handle_command(self, ctx: EventContext) -> typing.Tuple[bool, bool]:
         need_assistant_reply = False
         need_save_memory = False
@@ -260,7 +269,7 @@ class Waifu(BasePlugin):
         config = self.waifu_cache[launcher_id]
         msg = str(ctx.event.query.message_chain)
         self.ap.logger.info(f"Waifu处理消息:{msg}")
-
+    
         if msg.startswith("请设计"):
             content = msg[3:].strip()
             response = await self._generator.return_list(content)
@@ -354,7 +363,7 @@ class Waifu(BasePlugin):
         else:
             need_assistant_reply = True
             need_save_memory = True
-
+    
         if response:
             await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, platform_message.MessageChain([str(response)]), False)
         return need_assistant_reply, need_save_memory
@@ -370,9 +379,15 @@ class Waifu(BasePlugin):
         else:
             return "没有正在运行的计时器。"
 
+    # 修改 _ensure_required_files_exist 方法，确保表情包目录存在
     def _ensure_required_files_exist(self):
-        directories = ["data/plugins/Waifu/cards", "data/plugins/Waifu/config", "data/plugins/Waifu/data"]
-
+        directories = [
+            "data/plugins/Waifu/cards", 
+            "data/plugins/Waifu/config", 
+            "data/plugins/Waifu/data",
+            "data/plugins/Waifu/images"  # 添加表情包目录
+        ]
+    
         for directory in directories:
             if not os.path.exists(directory):
                 os.makedirs(directory)
@@ -603,12 +618,13 @@ class Waifu(BasePlugin):
             narration = config.memory.to_generic_names(narration)
             await config.memory.save_memory(role="narrator", content=narration)
 
+    # 修改 _send_personate_reply 方法，支持表情包
     async def _send_personate_reply(self, ctx: EventContext, response: str):
         config = self.waifu_cache[ctx.event.launcher_id]
         parts = re.split(r"(?<!\d)[，。？！,.?!\n~〜](?!\d)", response)  # 保留分隔符(避免分割小数)
         combined_parts = []
         temp_part = ""
-
+    
         for part in parts:
             part = part.strip()
             if not part:
@@ -625,14 +641,14 @@ class Waifu(BasePlugin):
                 if len(temp_part) >= 3:
                     combined_parts.append(temp_part.strip())
                     temp_part = ""
-
+    
         if temp_part:  # 添加剩余部分
             combined_parts.append(temp_part.strip())
-
+    
         # 如果response未使用分段标点符号，combined_parts为空，添加整个response作为一个单独的部分
         if not combined_parts:
             combined_parts.append(response)
-
+    
         if combined_parts and len(config.bracket_rate) == 2:
             try:
                 if random.random() < config.bracket_rate[0]:  # 老互联网冲浪人士了（）
@@ -641,14 +657,26 @@ class Waifu(BasePlugin):
                     combined_parts[-1] += "（"
             except Exception as e:
                 self.ap.logger.error(f"Bracket addition failed: {e}")
-
+    
         for part in combined_parts:
             await self._reply(ctx, f"{part}", True)
+            # 如果启用表情包且是最后一段，添加表情包
+            if config.use_emoji and part == combined_parts[-1]:
+                emotion = self._emoji_manager.analyze_emotion(part)
+                message_chain = self._emoji_manager.create_emoji_message(part, emotion)
+                await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, message_chain, False)
+            else:
+                await self._reply(ctx, f"{part}", False)  # 非最后一段不触发事件
+            
             self.ap.logger.info(f"发送：{part}")
             if config.personate_delay != 0:
                 await asyncio.sleep(config.personate_delay)
             else:
                 await asyncio.sleep(len(part) / 2)  # 根据字数计算延迟时间，假设每2个字符1秒
+            
+            # 如果有分段回复，最后一段已经发送，需要触发事件
+            if combined_parts:
+                await self._emit_responded_event(ctx, combined_parts[-1])
 
     async def _vision(self, ctx: EventContext) -> str:
         # 参考自preproc.py PreProcessor
@@ -681,9 +709,22 @@ class Waifu(BasePlugin):
         non_blank_lines = [line for line in lines if line.strip() != ""]
         return "\n".join(non_blank_lines)
 
+    # 修改 _reply 方法，支持表情包
     async def _reply(self, ctx: EventContext, response: str, event_trigger: bool = False):
         response_fixed = self._remove_blank_lines(response)
-        await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, platform_message.MessageChain([f"{response_fixed}"]), False)
+        
+        # 检查是否需要添加表情包
+        launcher_id = ctx.event.launcher_id
+        config = self.waifu_cache.get(launcher_id)
+        
+        if config and config.use_emoji and event_trigger:
+            # 分析文本情绪并获取表情包
+            emotion = self._emoji_manager.analyze_emotion(response_fixed)
+            message_chain = self._emoji_manager.create_emoji_message(response_fixed, emotion)
+            await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, message_chain, False)
+        else:
+            await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, platform_message.MessageChain([f"{response_fixed}"]), False)
+        
         if event_trigger:
             await self._emit_responded_event(ctx, response_fixed)
 
