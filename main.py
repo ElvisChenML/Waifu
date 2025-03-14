@@ -80,6 +80,7 @@ class WaifuCache:
         self.blacklist = []
         self.ignore_prefix = []
         self.use_emoji = True  # 是否使用表情包
+        self.emoji_rate = 0.5  # 表情包发送频率
 
 
 @runner.runner_class("waifu-mode")
@@ -93,7 +94,7 @@ class WaifuRunner(runner.RequestRunner):
         return
 
 
-@register(name="Waifu", description="Cuter than real waifu!", version="1.9.8", author="ElvisChenML")
+@register(name="Waifu", description="Cuter than real waifu!", version="1.9.9", author="ElvisChenML")
 class Waifu(BasePlugin):
     # 修改 __init__ 方法，初始化表情包管理器
     def __init__(self, host: APIHost):
@@ -200,7 +201,6 @@ class Waifu(BasePlugin):
         if need_assistant_reply:
             await self._request_group_reply(ctx)
 
-    # 修改 _load_config 方法，加载表情包配置
     async def _load_config(self, launcher_id: str, launcher_type: str):
         self.waifu_cache[launcher_id] = WaifuCache(self.ap, launcher_id, launcher_type)
         cache = self.waifu_cache[launcher_id]
@@ -234,6 +234,7 @@ class Waifu(BasePlugin):
         cache.langbot_group_rule = config_mgr.data.get("langbot_group_rule", False)
         cache.ignore_prefix = config_mgr.data.get("ignore_prefix", [])
         cache.use_emoji = config_mgr.data.get("use_emoji", True)  # 加载表情包配置
+        cache.emoji_rate = config_mgr.data.get("emoji_rate", 0.5)  # 加载表情包频率配置
 
         await cache.memory.load_config(character, launcher_id, launcher_type)
         await cache.value_game.load_config(character, launcher_id, launcher_type)
@@ -672,7 +673,7 @@ class Waifu(BasePlugin):
             # 如果启用表情包且是最后一段，添加表情包
             if config.use_emoji and part == combined_parts[-1]:
                 emotion = self._emoji_manager.analyze_emotion(part)
-                message_chain = self._emoji_manager.create_emoji_message(part, emotion)
+                message_chain = self._emoji_manager.create_emoji_message(part, emotion, config.emoji_rate)
                 await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, message_chain, False)
             else:
                 await self._reply(ctx, f"{part}", False)  # 非最后一段不触发事件
@@ -729,7 +730,7 @@ class Waifu(BasePlugin):
         if config and config.use_emoji and event_trigger:
             # 分析文本情绪并获取表情包
             emotion = self._emoji_manager.analyze_emotion(response_fixed)
-            message_chain = self._emoji_manager.create_emoji_message(response_fixed, emotion)
+            message_chain = self._emoji_manager.create_emoji_message(response_fixed, emotion, config.emoji_rate)
             await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, message_chain, False)
         else:
             await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, platform_message.MessageChain([f"{response_fixed}"]), False)
