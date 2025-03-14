@@ -41,6 +41,6 @@ person_response_delay: 0 # 私聊消息合并等待时间（秒）。
 continued_rate: 0 # 自动触发回复后继续发言的机率。
 continued_max_count: 2 # 私聊最大延续发言次数。
 
-# 在适当位置添加
+# 表情包功能配置
 use_emoji: true # 是否使用表情包功能
 emoji_rate: 0.5 # 表情包发送频率，范围0-1，值越大发送频率越高

@@ -729,9 +729,8 @@ class Waifu(BasePlugin):
         
         try:
             if config and config.use_emoji and event_trigger:
-                # 分析文本情绪并获取表情包
-                emotion = self._emoji_manager.analyze_emotion(response_fixed)
-                message_chain = self._emoji_manager.create_emoji_message(response_fixed, emotion, config.emoji_rate)
+                # 使用大模型分析情绪并获取表情包
+                message_chain = await self._emoji_manager.create_emoji_message(response_fixed, self._generator, config.emoji_rate)
                 await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, message_chain, False)
             else:
                 await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, 

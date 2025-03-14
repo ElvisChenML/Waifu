@@ -3,6 +3,7 @@ import random
 import re
 from pkg.core import app
 from pkg.platform.types import message as platform_message
+from pkg.provider import entities as llm_entities
 
 class EmojiManager:
     """表情包管理器，负责选择和发送表情包"""
@@ -65,37 +66,54 @@ class EmojiManager:
         # 如果没有匹配，返回None
         return None
 
-    def analyze_emotion(self, text):
-        """分析文本情绪"""
-        # 简单的情绪分析，基于关键词
-        emotions = {
-            "开心": ["开心", "高兴", "快乐", "兴奋", "喜悦", "笑", "哈哈"],
-            "悲伤": ["悲伤", "难过", "伤心", "痛苦", "哭", "泪"],
-            "生气": ["生气", "愤怒", "恼火", "烦躁", "怒"],
-            "惊讶": ["惊讶", "震惊", "吃惊", "惊喜", "哇"],
-            "疑问": ["疑问", "困惑", "不解", "为什么", "怎么", "啊？", "嗯？"],
-            "害羞": ["害羞", "羞涩", "不好意思", "脸红"],
-            "爱心": ["爱", "喜欢", "爱心", "心动", "❤"],
-            "无奈": ["无奈", "无语", "叹气", "唉", "哎"]
-        }
+    async def analyze_emotion_with_llm(self, text, generator):
+        """使用大模型分析文本情绪并选择合适的表情包
         
-        # 默认情绪
-        default_emotion = "开心"
+        Args:
+            text: 文本消息
+            generator: 生成器对象，用于调用大模型
+            
+        Returns:
+            str: 选择的表情名称
+        """
+        available_emotions = self.get_available_emotions()
+        if not available_emotions:
+            return None
+            
+        # 构建提示语
+        emoticon_list = ", ".join(available_emotions)
+        prompt = f"""分析以下文本的情感和语气，并从给定的表情列表中选择一个最合适的表情。
+文本: "{text}"
+可用表情: {emoticon_list}
+请只回复一个表情名称，不要添加任何其他内容。"""
         
-        # 检查文本中是否包含情绪关键词
-        for emotion, keywords in emotions.items():
-            for keyword in keywords:
-                if keyword in text:
-                    return emotion
-        
-        return default_emotion
+        try:
+            # 调用大模型获取表情
+            emotion = await generator.return_string(prompt, [], "你是一个情感分析专家，擅长从文本中识别情绪并选择合适的表情")
+            emotion = emotion.strip()
+            
+            # 检查返回的表情是否在可用列表中
+            if emotion in available_emotions:
+                return emotion
+                
+            # 如果不在列表中，尝试部分匹配
+            for key in available_emotions:
+                if emotion in key or key in emotion:
+                    return key
+                    
+            # 如果仍然没有匹配，随机选择一个
+            return random.choice(available_emotions)
+        except Exception as e:
+            self.ap.logger.error(f"使用大模型分析情绪失败: {e}")
+            # 失败时回退到随机选择
+            return random.choice(available_emotions)
 
-    def create_emoji_message(self, text, emotion, emoji_rate=1.0):
+    async def create_emoji_message(self, text, generator, emoji_rate=1.0):
         """创建带表情包的消息
         
         Args:
             text: 文本消息
-            emotion: 情绪
+            generator: 生成器对象，用于调用大模型
             emoji_rate: 表情包发送频率，范围0-1
         
         Returns:
@@ -105,7 +123,10 @@ class EmojiManager:
         if random.random() > emoji_rate:
             return platform_message.MessageChain([platform_message.Plain(text)])
             
+        # 使用大模型分析情绪
+        emotion = await self.analyze_emotion_with_llm(text, generator)
         emoji_file = self.get_emoji_for_emotion(emotion)
+        
         if not emoji_file:
             # 如果没有匹配的表情包，只返回文本
             return platform_message.MessageChain([platform_message.Plain(text)])
