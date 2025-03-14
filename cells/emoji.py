@@ -78,7 +78,7 @@ class EmojiManager:
         """
         available_emotions = self.get_available_emotions()
         if not available_emotions:
-            return None
+            return random.choice(list(self.emoji_cache.keys())) if self.emoji_cache else None
             
         # 构建提示语
         emoticon_list = ", ".join(available_emotions)
@@ -89,8 +89,8 @@ class EmojiManager:
         
         try:
             # 修正参数数量，根据Generator.return_string的实际参数要求调整
-            system_prompt = "你是一个情感分析专家，擅长从文本中识别情绪并选择合适的表情"
-            emotion = await generator.return_string(prompt, system_prompt)
+            # 查看Generator.return_string方法签名，只传入必要的参数
+            emotion = await generator.return_string(prompt)
             emotion = emotion.strip()
             
             # 检查返回的表情是否在可用列表中
@@ -127,6 +127,11 @@ class EmojiManager:
         try:
             # 使用大模型分析情绪
             emotion = await self.analyze_emotion_with_llm(text, generator)
+            
+            # 如果没有获取到情绪，直接返回纯文本
+            if emotion is None:
+                return platform_message.MessageChain([platform_message.Plain(text)])
+                
             emoji_file = self.get_emoji_for_emotion(emotion)
             
             if not emoji_file:
@@ -138,6 +143,9 @@ class EmojiManager:
             
             # 使用 Image.from_local 创建图片消息
             image = platform_message.Image.from_local(emoji_path)
+            # 确保返回的是一个有效的MessageChain对象
             return platform_message.MessageChain([platform_message.Plain(text), image])
         except Exception as e:
             self.ap.logger.error(f"加载表情包失败: {e}")
+            # 出错时返回纯文本消息
+            return platform_message.MessageChain([platform_message.Plain(text)])

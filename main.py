@@ -94,7 +94,7 @@ class WaifuRunner(runner.RequestRunner):
         return
 
 
-@register(name="Waifu", description="Cuter than real waifu!", version="2.0.2", author="ElvisChenML")
+@register(name="Waifu", description="Cuter than real waifu!", version="2.0.3", author="ElvisChenML")
 class Waifu(BasePlugin):
     # 修改 __init__ 方法，初始化表情包管理器
     def __init__(self, host: APIHost):
@@ -735,7 +735,16 @@ class Waifu(BasePlugin):
                     self._generator, 
                     config.emoji_rate
                 )
-                await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, message_chain, False)
+                # 确保message_chain不为None
+                if message_chain:
+                    await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, message_chain, False)
+                else:
+                    # 如果message_chain为None，使用纯文本回复
+                    await ctx.event.query.adapter.reply_message(
+                        ctx.event.query.message_event, 
+                        platform_message.MessageChain([platform_message.Plain(response_fixed)]), 
+                        False
+                    )
             else:
                 await ctx.event.query.adapter.reply_message(
                     ctx.event.query.message_event, 
@@ -748,13 +757,16 @@ class Waifu(BasePlugin):
         except Exception as e:
             self.ap.logger.error(f"回复消息时出错: {e}")
             # 出错时尝试使用纯文本回复
-            await ctx.event.query.adapter.reply_message(
-                ctx.event.query.message_event, 
-                platform_message.MessageChain([platform_message.Plain(response_fixed)]), 
-                False
-            )
-            if event_trigger:
-                await self._emit_responded_event(ctx, response_fixed)
+            try:
+                await ctx.event.query.adapter.reply_message(
+                    ctx.event.query.message_event, 
+                    platform_message.MessageChain([platform_message.Plain(response_fixed)]), 
+                    False
+                )
+                if event_trigger:
+                    await self._emit_responded_event(ctx, response_fixed)
+            except Exception as e2:
+                self.ap.logger.error(f"尝试纯文本回复也失败: {e2}")
 
     async def _emit_responded_event(self, ctx: EventContext, response: str):
         query = ctx.event.query
