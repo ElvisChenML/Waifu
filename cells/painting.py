@@ -3,6 +3,7 @@ import asyncio
 from pkg.core import app
 from pkg.platform.types import message as platform_message
 from plugins.Waifu.cells.emoji import EmojiManager
+from plugins.Waifu.cells.config import ConfigManager
 
 class Painting:
     def __init__(self, ap: app.Application, emoji_manager: EmojiManager):
@@ -10,6 +11,19 @@ class Painting:
         self.emoji_manager = emoji_manager
         self.model = "wanx2.1-t2i-turbo"
         self.api_key = "your_api_key_here"
+        # 初始化时加载配置
+        asyncio.create_task(self.load_config())
+        
+    async def load_config(self):
+        """从配置文件加载绘画相关设置"""
+        try:
+            config_mgr = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu")
+            await config_mgr.load_config(completion=True)
+            self.model = config_mgr.data.get("model", self.model)
+            self.api_key = config_mgr.data.get("api_key", self.api_key)
+            self.ap.logger.info(f"绘画配置已加载，使用模型: {self.model}")
+        except Exception as e:
+            self.ap.logger.error(f"加载绘画配置失败: {e}")
 
     async def generate_image(self, prompt: str, orientation: str) -> str:
         size = "1280*720" if orientation == "横着" else "720*1280"
