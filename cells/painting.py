@@ -1,5 +1,6 @@
-import requests
 import asyncio
+import dashscope
+from dashscope import ImageSynthesis
 from pkg.core import app
 from pkg.platform.types import message as platform_message
 from plugins.Waifu.cells.emoji import EmojiManager
@@ -21,39 +22,44 @@ class Painting:
             await config_mgr.load_config(completion=True)
             self.model = config_mgr.data.get("model", self.model)
             self.api_key = config_mgr.data.get("api_key", self.api_key)
+            # 设置 dashscope 的 API Key
+            dashscope.api_key = self.api_key
             self.ap.logger.info(f"绘画配置已加载，使用模型: {self.model}")
         except Exception as e:
             self.ap.logger.error(f"加载绘画配置失败: {e}")
 
     async def generate_image(self, prompt: str, orientation: str) -> str:
-        size = "1280*720" if orientation == "横着" else "720*1280"
-        url = "https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis"
-        headers = {
-            'X-DashScope-Async': 'enable',
-            'Authorization': f'Bearer {self.api_key}',
-            'Content-Type': 'application/json'
-        }
-        data = {
-            "model": self.model,
-            "input": {
-                "prompt": prompt
-            },
-            "parameters": {
-                "size": size,
-                "n": 1,
-                "prompt_extend": True
-            }
-        }
-        response = requests.post(url, headers=headers, json=data)
-        if response.status_code == 200:
-            response_data = response.json()
-            if "data" in response_data and "results" in response_data["data"]:
-                image_url = response_data["data"]["results"][0]["url"]
-                return image_url
-        self.ap.logger.error(f"Failed to generate image: {response.text}")
-        return None
+        """使用 dashscope 库生成图片"""
+        try:
+            size = "1280*720" if orientation == "横着" else "720*1280"
+            
+            # 使用 dashscope 的 ImageSynthesis 类
+            response = ImageSynthesis.call(
+                model=self.model,
+                prompt=prompt,
+                n=1,
+                size=size,
+                prompt_extend=True
+            )
+            
+            # 检查响应状态
+            if response.status_code == 200:
+                # 从响应中获取图片 URL
+                if response.output and response.output.results and len(response.output.results) > 0:
+                    image_url = response.output.results[0].url
+                    return image_url
+                else:
+                    self.ap.logger.error(f"生成图片失败: 响应中没有图片URL")
+            else:
+                self.ap.logger.error(f"生成图片失败: {response.status_code}, {response.message}")
+            
+            return None
+        except Exception as e:
+            self.ap.logger.error(f"生成图片时发生异常: {e}")
+            return None
 
     async def send_image(self, ctx, prompt: str, orientation: str):
+        """发送生成的图片"""
         image_url = await self.generate_image(prompt, orientation)
         if image_url:
             image = platform_message.Image(url=image_url)

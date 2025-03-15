@@ -96,7 +96,7 @@ class WaifuRunner(runner.RequestRunner):
         return
 
 
-@register(name="Waifu", description="Cuter than real waifu!", version="2.0.9", author="ElvisChenML")
+@register(name="Waifu", description="Cuter than real waifu!", version="2.1.0", author="ElvisChenML")
 class Waifu(BasePlugin):
     # 修改 __init__ 方法，初始化表情包管理器
     def __init__(self, host: APIHost):
