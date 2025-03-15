@@ -46,3 +46,7 @@ use_emoji: true # 是否使用表情包
 emoji_rate: 0.5 # 表情包发送频率
 use_superbed: true # 是否使用聚合图床
 superbed_token: "123456789" # 聚合图床token
+
+# 绘画设置
+model: "wanx2.1-t2i-turbo" # 模型名称
+api_key: "your_api_key_here" # API密钥

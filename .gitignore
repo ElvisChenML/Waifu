@@ -132,3 +132,4 @@ dmypy.json
 zilch/
 Expression package.py
 BailianTextToImagePlugin.py
+/.vscode

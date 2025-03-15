@@ -20,6 +20,7 @@ from plugins.Waifu.organs.memories import Memory
 from plugins.Waifu.systems.narrator import Narrator
 from plugins.Waifu.systems.value_game import ValueGame
 from plugins.Waifu.organs.thoughts import Thoughts
+from plugins.Waifu.cells.painting import Painting
 
 COMMANDS = {
     "列出命令": "列出目前支援所有命令及介绍，用法：[列出命令]。",
@@ -41,6 +42,7 @@ COMMANDS = {
     "回答问题": "调试：可自定系统提示的问答模式，用法：[回答问题][系统提示语]|[用户提示语] / [回答问题][用户提示语]。",
     "加载表情": "重新加载表情包，用法：[加载表情]。",
     "表情开关": "开启或关闭表情包功能，用法：[表情开关]。",
+    "绘画": "使用AI生成图片，用法：[绘画][提示词] 竖着/横着。",
 }
 
 class WaifuCache:
@@ -94,7 +96,7 @@ class WaifuRunner(runner.RequestRunner):
         return
 
 
-@register(name="Waifu", description="Cuter than real waifu!", version="2.0.7", author="ElvisChenML")
+@register(name="Waifu", description="Cuter than real waifu!", version="2.0.8", author="ElvisChenML")
 class Waifu(BasePlugin):
     # 修改 __init__ 方法，初始化表情包管理器
     def __init__(self, host: APIHost):
@@ -103,6 +105,7 @@ class Waifu(BasePlugin):
         self._generator = Generator(self.ap)
         self.waifu_cache: typing.Dict[str, WaifuCache] = {}
         self._emoji_manager = EmojiManager(self.ap)  # 初始化表情包管理器
+        self._painting = Painting(self.ap, self._emoji_manager)  # 初始化绘画管理器
         self._set_permissions_recursively("data/plugins/Waifu/", 0o777)
 
     async def initialize(self):
@@ -372,6 +375,21 @@ class Waifu(BasePlugin):
             response = f"已撤回：\n{await config.memory.remove_last_memory()}"
         elif msg == "列出命令":
             response = self._list_commands()
+        elif msg.startswith("绘画"):
+            content = msg[2:].strip()
+            parts = content.split(" ")
+            if len(parts) == 2:
+                prompt = parts[0].strip()
+                orientation = parts[1].strip()
+                if orientation in ["竖着", "横着"]:
+                    await self._painting.send_image(ctx, prompt, orientation)
+                    return False, False
+                else:
+                    response = "请指定正确的方向（竖着/横着）"
+            else:
+                response = "请提供正确的参数（提示词 竖着/横着）"
+            await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, platform_message.MessageChain([str(response)]), False)
+            return False, False
         else:
             need_assistant_reply = True
             need_save_memory = True
