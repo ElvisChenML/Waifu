@@ -23,7 +23,6 @@ from plugins.Waifu.organs.thoughts import Thoughts
 from plugins.Waifu.cells.painting import Painting
 
 COMMANDS = {
-    "切换模式": "切换群聊/个人聊天模式，用法：[切换模式]。当前模式会在控制台和QQ群中显示。",
     "列出命令": "列出目前支援所有命令及介绍，用法：[列出命令]。",
     "全部记忆": "显示目前所有长短期记忆，用法：[全部记忆]。",
     "删除记忆": "删除所有长短期记忆，用法：[删除记忆]。",
@@ -84,7 +83,6 @@ class WaifuCache:
         self.ignore_prefix = []
         self.use_emoji = True  # 是否使用表情包
         self.emoji_rate = 0.5  # 表情包发送频率
-        self.personal_mode = False  # 新增属性，默认为群聊模式
 
 
 @runner.runner_class("waifu-mode")
@@ -179,12 +177,6 @@ class Waifu(BasePlugin):
         if waifu_data and sender_id in waifu_data.blacklist:
             self.ap.logger.info(f"已屏蔽黑名单中{sender_id}的发言: {str(text_message)}。")
             return False
-
-        if config.personal_mode:
-            # 为每个用户创建单独的对话和记忆
-            personal_launcher_id = f"{launcher_id}_{sender_id}"
-            if personal_launcher_id not in self.waifu_cache:
-                await self._load_config(personal_launcher_id, "person")
 
         return True
 
@@ -398,12 +390,6 @@ class Waifu(BasePlugin):
                 response = "请提供正确的参数（提示词 竖着/横着）"
             await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, platform_message.MessageChain([str(response)]), False)
             return False, False
-        elif msg == "切换模式":
-            config.personal_mode = not config.personal_mode
-            mode = "个人模式" if config.personal_mode else "群聊模式"
-            response = f"已切换至{mode}"
-            await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, platform_message.MessageChain([str(response)]), False)
-            self.ap.logger.info(f"当前模式：{mode}")
         else:
             need_assistant_reply = True
             need_save_memory = True
@@ -535,10 +521,6 @@ class Waifu(BasePlugin):
             await self._send_personate_reply(ctx, response)
         else:
             await self._reply(ctx, f"{response}", True)
-
-        if config.personal_mode:
-            user_info = f"用户：{ctx.event.sender_id}+{ctx.event.query.message_event.sender.member_name}"
-            response += f"\n{user_info}"
 
     async def _request_person_reply(self, ctx: EventContext, need_save_memory: bool):
         launcher_id = ctx.event.launcher_id
