@@ -303,7 +303,7 @@ class Waifu(BasePlugin):
         config = self.waifu_cache[launcher_id]
         msg = str(ctx.event.query.message_chain)
         self.ap.logger.info(f"Waifu处理消息:{msg}")
-    
+        
         if msg.startswith("请设计"):
             content = msg[3:].strip()
             response = await self._generator.return_list(content)
@@ -421,17 +421,20 @@ class Waifu(BasePlugin):
             config.group_mode = True
             response = "已切换到群聊统一回复模式"
             self.ap.logger.info(response)
-            # 在群聊中也输出当前模式
+            # 在群聊中输出当前模式，但不要设置response变量
             await self._reply(ctx, response)
+            return False, False  # 直接返回，避免重复发送
         elif msg == "个人模式":
             config.group_mode = False 
             response = "已切换到用户单独聊天模式"
             self.ap.logger.info(response)
-            # 在群聊中也输出当前模式
+            # 在群聊中输出当前模式，但不要设置response变量
             await self._reply(ctx, response)
+            return False, False  # 直接返回，避免重复发送
         else:
             need_assistant_reply = True
             need_save_memory = True
+
         if response:
             await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, platform_message.MessageChain([str(response)]), False)
         return need_assistant_reply, need_save_memory
