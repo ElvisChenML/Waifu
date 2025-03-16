@@ -43,6 +43,8 @@ COMMANDS = {
     "加载表情": "重新加载表情包，用法：[加载表情]。",
     "表情开关": "开启或关闭表情包功能，用法：[表情开关]。",
     "绘画": "使用AI生成图片，用法：[绘画][提示词] 竖着/横着。",
+    "群聊模式": "切换到群聊统一回复模式，用法：[群聊模式]",
+    "个人模式": "切换到用户单独聊天模式，用法：[个人模式]",
 }
 
 class WaifuCache:
@@ -83,6 +85,8 @@ class WaifuCache:
         self.ignore_prefix = []
         self.use_emoji = True  # 是否使用表情包
         self.emoji_rate = 0.5  # 表情包发送频率
+        self.group_mode = True  # 默认群聊模式
+        self.user_sessions = {}  # 存储用户单独会话
 
 
 @runner.runner_class("waifu-mode")
@@ -96,7 +100,7 @@ class WaifuRunner(runner.RequestRunner):
         return
 
 
-@register(name="Waifu", description="Cuter than real waifu!", version="2.1.1", author="ElvisChenML")
+@register(name="Waifu", description="Cuter than real waifu!", version="2.0.0", author="ElvisChenML")
 class Waifu(BasePlugin):
     # 修改 __init__ 方法，初始化表情包管理器
     def __init__(self, host: APIHost):
@@ -196,6 +200,22 @@ class Waifu(BasePlugin):
         if not await self._access_control_check(ctx):
             return
 
+        # 获取用户信息
+        sender_id = ctx.event.sender_id
+        sender_name = ctx.event.query.message_event.sender.member_name
+        
+        # 创建用户专属会话ID
+        user_launcher_id = f"{ctx.event.launcher_id}_user_{sender_id}"
+        
+        if user_launcher_id not in self.waifu_cache:
+            await self._load_config(user_launcher_id, "person")  # 使用person类型加载配置
+            
+        # 存储用户信息
+        self.waifu_cache[user_launcher_id].user_info = {
+            "qq_id": sender_id,
+            "qq_name": sender_name
+        }
+        
         # 在GroupNormalMessageReceived的ctx.event.query.message_chain会将At移除
         # 所以这在经过主项目处理前先进行备份
         self.waifu_cache[ctx.event.launcher_id].group_message_chain = copy.deepcopy(ctx.event.query.message_chain)
@@ -390,6 +410,14 @@ class Waifu(BasePlugin):
                 response = "请提供正确的参数（提示词 竖着/横着）"
             await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, platform_message.MessageChain([str(response)]), False)
             return False, False
+        elif msg == "群聊模式":
+          config.group_mode = True
+          response = "已切换到群聊统一回复模式"
+          self.ap.logger.info(response)
+        elif msg == "个人模式":
+          config.group_mode = False 
+          response = "已切换到用户单独聊天模式"
+          self.ap.logger.info(response)
         else:
             need_assistant_reply = True
             need_save_memory = True
@@ -518,6 +546,9 @@ class Waifu(BasePlugin):
         await config.memory.save_memory(role="assistant", content=response)
 
         if config.personate_mode:
+            # 添加用户信息
+            if not config.group_mode and hasattr(config, 'user_info'):
+                response += f"\n用户：{config.user_info['qq_id']}-{config.user_info['qq_name']}"
             await self._send_personate_reply(ctx, response)
         else:
             await self._reply(ctx, f"{response}", True)
