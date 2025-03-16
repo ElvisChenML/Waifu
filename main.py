@@ -207,22 +207,29 @@ class Waifu(BasePlugin):
         # 创建用户专属会话ID
         user_launcher_id = f"{ctx.event.launcher_id}_user_{sender_id}"
         
-        if user_launcher_id not in self.waifu_cache:
-            await self._load_config(user_launcher_id, "person")  # 使用person类型加载配置
-            
-        # 存储用户信息
-        self.waifu_cache[user_launcher_id].user_info = {
-            "qq_id": sender_id,
-            "qq_name": sender_name
-        }
-        
         # 在GroupNormalMessageReceived的ctx.event.query.message_chain会将At移除
         # 所以这在经过主项目处理前先进行备份
         self.waifu_cache[ctx.event.launcher_id].group_message_chain = copy.deepcopy(ctx.event.query.message_chain)
 
-        need_assistant_reply, _ = await self._handle_command(ctx)
+        need_assistant_reply, need_save_memory = await self._handle_command(ctx)
         if need_assistant_reply:
-            await self._request_group_reply(ctx)
+            # 检查是否为个人模式
+            if not self.waifu_cache[ctx.event.launcher_id].group_mode:
+                # 确保用户专属配置已加载
+                if user_launcher_id not in self.waifu_cache:
+                    await self._load_config(user_launcher_id, "person")
+                
+                # 存储用户信息
+                self.waifu_cache[user_launcher_id].user_info = {
+                    "qq_id": sender_id,
+                    "qq_name": sender_name
+                }
+                
+                # 使用用户专属ID处理请求
+                await self._request_personal_group_reply(ctx, user_launcher_id)
+            else:
+                # 使用群聊模式处理请求
+                await self._request_group_reply(ctx)
 
     async def _load_config(self, launcher_id: str, launcher_type: str):
         self.waifu_cache[launcher_id] = WaifuCache(self.ap, launcher_id, launcher_type)
@@ -411,17 +418,20 @@ class Waifu(BasePlugin):
             await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, platform_message.MessageChain([str(response)]), False)
             return False, False
         elif msg == "群聊模式":
-          config.group_mode = True
-          response = "已切换到群聊统一回复模式"
-          self.ap.logger.info(response)
+            config.group_mode = True
+            response = "已切换到群聊统一回复模式"
+            self.ap.logger.info(response)
+            # 在群聊中也输出当前模式
+            await self._reply(ctx, response)
         elif msg == "个人模式":
-          config.group_mode = False 
-          response = "已切换到用户单独聊天模式"
-          self.ap.logger.info(response)
+            config.group_mode = False 
+            response = "已切换到用户单独聊天模式"
+            self.ap.logger.info(response)
+            # 在群聊中也输出当前模式
+            await self._reply(ctx, response)
         else:
             need_assistant_reply = True
             need_save_memory = True
-    
         if response:
             await ctx.event.query.adapter.reply_message(ctx.event.query.message_event, platform_message.MessageChain([str(response)]), False)
         return need_assistant_reply, need_save_memory
@@ -553,24 +563,105 @@ class Waifu(BasePlugin):
         else:
             await self._reply(ctx, f"{response}", True)
 
-    async def _request_person_reply(self, ctx: EventContext, need_save_memory: bool):
-        launcher_id = ctx.event.launcher_id
-        config = self.waifu_cache[launcher_id]
+    async def _request_personal_group_reply(self, ctx: EventContext, user_launcher_id: str):
+        """
+        处理个人模式下的群聊消息
+        """
+        group_launcher_id = ctx.event.launcher_id
+        group_config = self.waifu_cache[group_launcher_id]
+        user_config = self.waifu_cache[user_launcher_id]
+    
+        sender = ctx.event.query.message_event.sender.member_name
+        msg = await self._vision(ctx)  # 处理消息内容
+    
+        # 保存到用户专属记忆
+        await user_config.memory.save_memory(role=sender, content=msg)
+        user_config.unreplied_count += 1
+    
+        # 使用用户专属配置处理回复
+        await self._personal_group_reply(ctx, user_launcher_id)
 
-        if need_save_memory:  # 此处仅处理user的发言，保存至短期记忆
-            msg = await self._vision(ctx)  # 用眼睛看消息？
-            await config.memory.save_memory(role="user", content=msg)
-        config.unreplied_count += 1
-        await self._person_reply(ctx)
+    async def _personal_group_reply(self, ctx: EventContext, user_launcher_id: str):
+        """
+        个人模式下的群聊回复逻辑
+        """
+        group_launcher_id = ctx.event.launcher_id
+        group_config = self.waifu_cache[group_launcher_id]
+        user_config = self.waifu_cache[user_launcher_id]
+        
+        need_assistant_reply = False
+        
+        # 检查是否需要回复
+        if group_config.group_message_chain and group_config.group_message_chain.has(platform_message.At(ctx.event.query.adapter.bot_account_id)):
+            need_assistant_reply = True
+        if user_config.unreplied_count >= user_config.memory.response_min_conversations:
+            if random.random() < user_config.response_rate:
+                need_assistant_reply = True
+        
+        group_config.group_message_chain = None
+        
+        if need_assistant_reply:
+            if not user_config.response_timers_flag:
+                user_config.response_timers_flag = True
+                # 使用用户专属配置生成回复
+                asyncio.create_task(self._delayed_personal_group_reply(ctx, user_launcher_id))
 
-    async def _person_reply(self, ctx: EventContext):
-        launcher_id = ctx.event.launcher_id
-        config = self.waifu_cache[launcher_id]
-
-        if config.unreplied_count > 0:
-            if launcher_id not in self.waifu_cache or not config.response_timers_flag:
-                config.response_timers_flag = True
-                asyncio.create_task(self._delayed_person_reply(ctx))
+    async def _delayed_personal_group_reply(self, ctx: EventContext, user_launcher_id: str):
+        """
+        延迟处理个人模式下的群聊回复
+        """
+        group_launcher_id = ctx.event.launcher_id
+        user_config = self.waifu_cache[user_launcher_id]
+        
+        # 使用群聊的延迟设置
+        delay = self.waifu_cache[group_launcher_id].group_response_delay
+        self.ap.logger.info(f"等待个人模式群聊回复 {user_launcher_id} {delay}秒")
+        await asyncio.sleep(delay)
+        
+        try:
+            # 重置未回复计数
+            user_config.unreplied_count = 0
+            user_config.response_timers_flag = False
+            
+            # 加载相关记忆
+            if user_config.summarization_mode:
+                _, unreplied_conversations = user_config.memory.get_unreplied_msg(user_config.unreplied_count)
+                related_memories = await user_config.memory.load_memory(unreplied_conversations)
+                if related_memories:
+                    user_config.cards.set_memory(related_memories)
+            
+            # 生成系统提示
+            system_prompt = user_config.memory.to_custom_names(user_config.cards.generate_system_prompt())
+            
+            # 获取用户提示
+            user_prompt = user_config.memory.get_normalize_short_term_memory()
+            
+            # 思考模式处理
+            if user_config.thinking_mode_flag:
+                user_prompt, analysis = await user_config.thoughts.generate_group_prompt(user_config.memory, user_config.cards, 0)
+                if user_config.display_thinking and user_config.conversation_analysis_flag:
+                    await self._reply(ctx, f"【分析】：{analysis}")
+            
+            # 生成回复
+            self._generator.set_speakers([user_config.memory.assistant_name])
+            response = await self._generator.return_chat(user_prompt, system_prompt)
+            
+            # 添加用户信息标识
+            if hasattr(user_config, 'user_info'):
+                response += f"\n用户：{user_config.user_info['qq_id']}-{user_config.user_info['qq_name']}"
+            
+            # 保存回复到记忆
+            await user_config.memory.save_memory(role="assistant", content=response)
+            
+            # 发送回复
+            if user_config.personate_mode:
+                await self._send_personate_reply(ctx, response)
+            else:
+                await self._reply(ctx, f"{response}", True)
+            
+        except Exception as e:
+            self.ap.logger.error(f"个人模式群聊回复出错: {e}")
+            user_config.response_timers_flag = False
 
     async def _delayed_person_reply(self, ctx: EventContext):
         launcher_id = ctx.event.launcher_id
