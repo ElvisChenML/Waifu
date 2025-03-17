@@ -93,209 +93,31 @@ class WaifuCache:
 @runner.runner_class("waifu-mode")
 class WaifuRunner(runner.RequestRunner):
     async def run(self, query: core_entities.Query):
-        # 为了适配其他插件，以屏蔽runner的方式取代ctx.prevent_default()
-        # 不需在配置文件中手动配置运行器，将在插件加载过程强制指定为waifu-mode
-        # 返回一个空的异步生成器
-        if False:  # 永远不会执行，但保留生成器语法
+        if False:
             yield
         return
 
 
 @register(name="Waifu", description="Cuter than real waifu!", version="1.9.8", author="ElvisChenML")
 class Waifu(BasePlugin):
-    # 修改 __init__ 方法，初始化表情包管理器
     def __init__(self, host: APIHost):
         self.ap = host.ap
         self._ensure_required_files_exist()
         self._generator = Generator(self.ap)
         self.waifu_cache: typing.Dict[str, WaifuCache] = {}
-        self._emoji_manager = EmojiManager(self.ap)  # 初始化表情包管理器
-        self._painting = Painting(self.ap, self._emoji_manager)  # 初始化绘画管理器
+        self._emoji_manager = EmojiManager(self.ap)
+        self._painting = Painting(self.ap, self._emoji_manager)
         self._set_permissions_recursively("data/plugins/Waifu/", 0o777)
 
     async def initialize(self):
         await self._set_runner("waifu-mode")
-        # 为新用户创建配置文件
         config_mgr = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu")
         await config_mgr.load_config(completion=True)
-        # 确保表情包目录存在
         os.makedirs("data/plugins/Waifu/images", exist_ok=True)
 
     async def destroy(self):
         await self._set_runner(self.ap.provider_cfg.data['runner'])
 
-    # @handler(NormalMessageResponded)
-    # async def normal_message_responded(self, ctx: EventContext):
-    #     self.ap.logger.info(f"LangGPT的NormalMessageResponded: {str(ctx.event.response_text)}。")
-
-    async def _access_control_check(self, ctx: EventContext) -> bool:
-        """
-        访问控制检查，根据配置判断是否允许继续处理
-        :param ctx: 包含事件上下文信息的 EventContext 对象
-        :return: True if allowed to continue, False otherwise
-        """      
-        bot_account_id = ctx.event.query.adapter.bot_account_id
-        text_message = str(ctx.event.query.message_chain)
-        launcher_id = ctx.event.launcher_id
-        sender_id = ctx.event.sender_id
-        launcher_type = ctx.event.launcher_type
-        event_type = "PMR"
-        if isinstance(ctx.event, GroupNormalMessageReceived):
-            event_type = "GNMR"
-        elif isinstance(ctx.event, GroupMessageReceived):
-            event_type = "GMR"
-
-        # 黑白名单检查
-        mode = self.ap.pipeline_cfg.data["access-control"]["mode"]
-        sess_list = set(self.ap.pipeline_cfg.data["access-control"].get(mode, []))
-
-        found = (launcher_type == "group" and "group_*" in sess_list) or (launcher_type == "person" and "person_*" in sess_list) or f"{launcher_type}_{launcher_id}" in sess_list
-
-        if (mode == "whitelist" and not found) or (mode == "blacklist" and found):
-            reason = "不在白名单中" if mode == "whitelist" else "在黑名单中"
-            self.ap.logger.info(f"拒绝访问: {launcher_type}_{launcher_id} {reason}。")
-            return False
-
-        # 检查配置是否存在，若不存在则加载配置
-        if launcher_id not in self.waifu_cache:
-            await self._load_config(launcher_id, ctx.event.launcher_type)
-        waifu_data = self.waifu_cache.get(launcher_id, None)
-        if waifu_data:
-            waifu_data.memory.bot_account_id = bot_account_id
-        # 继承LangBot的群消息响应规则时忽略 GroupMessageReceived 信号
-        if event_type == "GMR" and waifu_data.langbot_group_rule == True:
-            return False
-        # 仅由Waifu管理群聊响应规则时忽略 GroupNormalMessageReceived 信号
-        if event_type == "GNMR" and waifu_data.langbot_group_rule == False:
-            return False
-
-        # 排除主项目命令
-        cmd_prefix = self.ap.command_cfg.data.get("command-prefix", [])
-        if any(text_message.startswith(prefix) for prefix in cmd_prefix):
-            return False
-        
-        # 排除特定前缀
-        if waifu_data and any(text_message.startswith(prefix) for prefix in waifu_data.ignore_prefix):
-            return False
-
-        # Waifu 群聊成员黑名单
-        if waifu_data and sender_id in waifu_data.blacklist:
-            self.ap.logger.info(f"已屏蔽黑名单中{sender_id}的发言: {str(text_message)}。")
-            return False
-
-        return True
-
-    @handler(PersonMessageReceived)
-    async def person_message_received(self, ctx: EventContext):
-        if not await self._access_control_check(ctx):
-            return
-
-        need_assistant_reply, need_save_memory = await self._handle_command(ctx)
-        if need_assistant_reply:
-            await self._request_person_reply(ctx, need_save_memory)
-            asyncio.create_task(self._handle_narration(ctx, ctx.event.launcher_id))
-
-    @handler(GroupMessageReceived)
-    @handler(GroupNormalMessageReceived)
-    async def group_message_received(self, ctx: EventContext):
-        if not await self._access_control_check(ctx):
-            return
-
-        # 获取用户信息
-        sender_id = ctx.event.sender_id
-        sender_name = ctx.event.query.message_event.sender.member_name
-        
-        # 创建用户专属会话ID
-        user_launcher_id = f"{ctx.event.launcher_id}_user_{sender_id}"
-        
-        # 在GroupNormalMessageReceived的ctx.event.query.message_chain会将At移除
-        # 所以这在经过主项目处理前先进行备份
-        self.waifu_cache[ctx.event.launcher_id].group_message_chain = copy.deepcopy(ctx.event.query.message_chain)
-
-        need_assistant_reply, need_save_memory = await self._handle_command(ctx)
-        if need_assistant_reply:
-            # 检查是否为个人模式
-            if not self.waifu_cache[ctx.event.launcher_id].group_mode:
-                # 确保用户专属配置已加载
-                if user_launcher_id not in self.waifu_cache:
-                    await self._load_config(user_launcher_id, "person")
-                
-                # 存储用户信息
-                self.waifu_cache[user_launcher_id].user_info = {
-                    "qq_id": sender_id,
-                    "qq_name": sender_name
-                }
-                
-                # 使用用户专属ID处理请求
-                await self._request_personal_group_reply(ctx, user_launcher_id)
-            else:
-                # 使用群聊模式处理请求
-                await self._request_group_reply(ctx)
-
-    async def _load_config(self, launcher_id: str, launcher_type: str):
-        self.waifu_cache[launcher_id] = WaifuCache(self.ap, launcher_id, launcher_type)
-        cache = self.waifu_cache[launcher_id]
-    
-        config_mgr = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu", launcher_id)
-        await config_mgr.load_config(completion=True)
-
-        character = config_mgr.data.get("character", f"default")
-        if character == "default":  # 区分私聊和群聊的模板
-            character = f"default_{launcher_type}"
-        else:
-            character = character.replace(".yaml", "")
-
-        cache.narrate_intervals = config_mgr.data.get("intervals", [])
-        cache.story_mode_flag = config_mgr.data.get("story_mode", True)
-        cache.thinking_mode_flag = config_mgr.data.get("thinking_mode", True)
-        cache.conversation_analysis_flag = config_mgr.data.get("conversation_analysis", True)
-        cache.display_thinking = config_mgr.data.get("display_thinking", True)
-        cache.display_value = config_mgr.data.get("display_value", False)
-        cache.response_rate = config_mgr.data.get("response_rate", 0.7)
-        cache.summarization_mode = config_mgr.data.get("summarization_mode", False)
-        cache.personate_mode = config_mgr.data.get("personate_mode", True)
-        cache.jail_break_mode = config_mgr.data.get("jail_break_mode", "off")
-        cache.bracket_rate = config_mgr.data.get("bracket_rate", [])
-        cache.group_response_delay = config_mgr.data.get("group_response_delay", 10)
-        cache.person_response_delay = config_mgr.data.get("person_response_delay", 0)
-        cache.personate_delay = config_mgr.data.get("personate_delay", 0)
-        cache.continued_rate = config_mgr.data.get("continued_rate", 0.5)
-        cache.continued_max_count = config_mgr.data.get("continued_max_count", 2)
-        cache.blacklist = config_mgr.data.get("blacklist", [])
-        cache.langbot_group_rule = config_mgr.data.get("langbot_group_rule", False)
-        cache.ignore_prefix = config_mgr.data.get("ignore_prefix", [])
-        # 在_load_config方法中添加
-        cache.use_emoji = config_mgr.data.get("use_emoji", True)
-        cache.emoji_rate = config_mgr.data.get("emoji_rate", 0.5)
-        self._emoji_manager.use_superbed = config_mgr.data.get("use_superbed", True)  # 默认不使用聚合图床
-        self._emoji_manager.superbed_token = config_mgr.data.get("superbed_token", "123456789")
-        await cache.memory.load_config(character, launcher_id, launcher_type)
-        await cache.value_game.load_config(character, launcher_id, launcher_type)
-        await cache.cards.load_config(character, launcher_type)
-        await cache.narrator.load_config()
-
-        self._set_jail_break(cache, "off")
-        if cache.jail_break_mode in ["before", "after", "end", "all"]:
-            self._set_jail_break(cache, cache.jail_break_mode)
-
-        self._set_permissions_recursively("data/plugins/Waifu/", 0o777)
-
-    async def _set_runner(self, runner_name: str):
-        """用于设置 RunnerManager 的 using_runner"""
-        runner_mgr = self.ap.runner_mgr
-        if runner_mgr:
-            for r in runner.preregistered_runners:
-                if r.name == runner_name:
-                    runner_mgr.using_runner = r(self.ap)
-                    await runner_mgr.using_runner.initialize()
-                    self.ap.logger.info(f"已设置运行器为 {runner_name}")
-                    break
-            else:
-                raise Exception(
-                    f"Runner '{runner_name}' not found in preregistered_runners."
-                )
-
-    # 修改 _handle_command 方法，添加表情包相关命令
     async def _handle_command(self, ctx: EventContext) -> typing.Tuple[bool, bool]:
         need_assistant_reply = False
         need_save_memory = False
@@ -303,7 +125,6 @@ class Waifu(BasePlugin):
         launcher_id = ctx.event.launcher_id
         config = self.waifu_cache[launcher_id]
         msg = str(ctx.event.query.message_chain)
-        self.ap.logger.info(f"Waifu处理消息:{msg}")
         
         if msg.startswith("请设计"):
             content = msg[3:].strip()
@@ -334,18 +155,33 @@ class Waifu(BasePlugin):
             response = self._stop_timer(launcher_id)
             config.memory.delete_local_files()
             config.value_game.reset_value()
-            response += "记忆已删除。"
+            
+            # 同时删除所有个人模式记忆
+            user_ids_to_delete = []
+            for user_launcher_id in list(self.waifu_cache.keys()):
+                if "_user_" in user_launcher_id:
+                    user_ids_to_delete.append(user_launcher_id)
+            
+            deleted_count = 0
+            for user_launcher_id in user_ids_to_delete:
+                self._stop_timer(user_launcher_id)
+                self.waifu_cache[user_launcher_id].memory.delete_local_files()
+                self.waifu_cache[user_launcher_id].value_game.reset_value()
+                del self.waifu_cache[user_launcher_id]
+                deleted_count += 1
+            
+            response += f"记忆已删除，包括{deleted_count}个个人模式记忆。"
         elif msg.startswith("删除个人模式记忆"):
             content = msg[8:].strip()
             if content:
                 # 删除指定用户的记忆
                 user_id = content
                 user_launcher_id = f"{launcher_id}_user_{user_id}"
+                
                 if user_launcher_id in self.waifu_cache:
                     self._stop_timer(user_launcher_id)
                     self.waifu_cache[user_launcher_id].memory.delete_local_files()
                     self.waifu_cache[user_launcher_id].value_game.reset_value()
-                    # 从缓存中移除该用户
                     del self.waifu_cache[user_launcher_id]
                     response = f"已删除用户 {user_id} 的个人模式记忆。"
                 else:
@@ -386,14 +222,12 @@ class Waifu(BasePlugin):
             launcher_type = ctx.event.launcher_type
             await self._load_config(launcher_id, launcher_type)
             response = "配置已重载"
-        # 添加表情包相关命令
         elif msg == "加载表情":
             response = self._emoji_manager.reload_emojis()
         elif msg == "表情开关":
             config.use_emoji = not config.use_emoji
             status = "开启" if config.use_emoji else "关闭"
             response = f"表情包功能已{status}"
-        # 继续处理其他命令
         elif msg == "停止活动":
             response = self._stop_timer(launcher_id)
         elif msg == "开场场景":
@@ -414,7 +248,7 @@ class Waifu(BasePlugin):
                 prompt = parts[1].strip()
                 if prompt == "继续":
                     user_prompt = await config.thoughts.generate_character_prompt(config.memory, config.cards, role)
-                    if user_prompt:  # 自动生成角色发言
+                    if user_prompt:
                         self._generator.set_speakers([role])
                         prompt = await self._generator.return_chat(user_prompt)
                         response = f"{role}：{prompt}"
@@ -422,19 +256,18 @@ class Waifu(BasePlugin):
                         need_assistant_reply = True
                     else:
                         response = f"错误：该命令不支援的该角色"
-                else:  # 人工指定角色发言
+                else:
                     await config.memory.save_memory(role=role, content=prompt)
                     need_assistant_reply = True
         elif msg.startswith("推进剧情"):
             role = msg[4:].strip()
-            if not role:  # 若不指定哪个角色推进剧情，默认为user
+            if not role:
                 role = "user"
             ctx.event.query.message_chain = platform_message.MessageChain(["旁白"])
-            need_assistant_reply, need_save_memory = await self._handle_command(ctx)  # 此时不会触发assistant回复
+            need_assistant_reply, need_save_memory = await self._handle_command(ctx)
             ctx.event.query.message_chain = platform_message.MessageChain([f"控制人物{role}|继续"])
             need_assistant_reply, need_save_memory = await self._handle_command(ctx)
         elif msg.startswith("功能测试"):
-            # 隐藏指令，功能测试会清空记忆，请谨慎执行。
             await self._test(ctx)
         elif msg == "撤回":
             response = f"已撤回：\n{await config.memory.remove_last_memory()}"
@@ -459,16 +292,14 @@ class Waifu(BasePlugin):
             config.group_mode = True
             response = "已切换到群聊统一回复模式"
             self.ap.logger.info(response)
-            # 在群聊中输出当前模式，但不要设置response变量
             await self._reply(ctx, response)
-            return False, False  # 直接返回，避免重复发送
+            return False, False
         elif msg == "个人模式":
-            config.group_mode = False 
+            config.group_mode = False
             response = "已切换到用户单独聊天模式"
             self.ap.logger.info(response)
-            # 在群聊中输出当前模式，但不要设置response变量
             await self._reply(ctx, response)
-            return False, False  # 直接返回，避免重复发送
+            return False, False
         else:
             need_assistant_reply = True
             need_save_memory = True
@@ -488,15 +319,14 @@ class Waifu(BasePlugin):
         else:
             return "没有正在运行的计时器。"
 
-    # 修改 _ensure_required_files_exist 方法，确保表情包目录存在
     def _ensure_required_files_exist(self):
         directories = [
-            "data/plugins/Waifu/cards", 
-            "data/plugins/Waifu/config", 
+            "data/plugins/Waifu/cards",
+            "data/plugins/Waifu/config",
             "data/plugins/Waifu/data",
-            "data/plugins/Waifu/images"  # 添加表情包目录
+            "data/plugins/Waifu/images"
         ]
-    
+
         for directory in directories:
             if not os.path.exists(directory):
                 os.makedirs(directory)
@@ -507,7 +337,6 @@ class Waifu(BasePlugin):
             file_path = f"data/plugins/Waifu/config/{file}"
             template_path = f"plugins/Waifu/templates/{file}"
             if not os.path.exists(file_path) and os.path.exists(template_path):
-                # 如果配置文件不存在，并且提供了模板，则使用模板创建配置文件
                 shutil.copyfile(template_path, file_path)
 
     def _set_permissions_recursively(self, path, mode):
@@ -521,7 +350,7 @@ class Waifu(BasePlugin):
         launcher_id = ctx.event.launcher_id
         config = self.waifu_cache[launcher_id]
         sender = ctx.event.query.message_event.sender.member_name
-        msg = await self._vision(ctx)  # 用眼睛看消息？
+        msg = await self._vision(ctx)
         await config.memory.save_memory(role=sender, content=msg)
         config.unreplied_count += 1
         await self._group_reply(ctx)
@@ -535,8 +364,6 @@ class Waifu(BasePlugin):
         if config.unreplied_count >= config.memory.response_min_conversations:
             if random.random() < config.response_rate:
                 need_assistant_reply = True
-        else:
-            self.ap.logger.info(f"群聊{launcher_id}还差{config.memory.response_min_conversations - config.unreplied_count}条消息触发回复")
 
         config.group_message_chain = None
         if need_assistant_reply:
@@ -547,12 +374,8 @@ class Waifu(BasePlugin):
     async def _delayed_group_reply(self, ctx: EventContext):
         launcher_id = ctx.event.launcher_id
         config = self.waifu_cache[launcher_id]
-        self.ap.logger.info(f"wait group {launcher_id} for {config.group_response_delay}s")
         await asyncio.sleep(config.group_response_delay)
-        self.ap.logger.info(f"generating group {launcher_id} response")
-
         try:
-            # 触发回复后，首先检查是否满足预设回复形式，预设回复不用脑子，不走模型。
             response = self._response_presets(launcher_id)
             if response:
                 config.unreplied_count = 0
@@ -560,21 +383,12 @@ class Waifu(BasePlugin):
                 await self._reply(ctx, f"{response}", True)
             else:
                 await self._send_group_reply(ctx)
-
-            config.response_timers_flag = False
-            await self._group_reply(ctx)  # 检查是否回复期间又满足响应条件
-
         except Exception as e:
             self.ap.logger.error(f"Error occurred during group reply: {e}")
-            raise
-
         finally:
             config.response_timers_flag = False
 
     async def _send_group_reply(self, ctx: EventContext):
-        """
-        调用模型生成群聊回复
-        """
         launcher_id = ctx.event.launcher_id
         config = self.waifu_cache[launcher_id]
         if config.summarization_mode:
@@ -582,22 +396,16 @@ class Waifu(BasePlugin):
             related_memories = await config.memory.load_memory(unreplied_conversations)
             if related_memories:
                 config.cards.set_memory(related_memories)
-        # 如果是群聊则不修改为自定义角色名
-        system_prompt = config.memory.to_custom_names(config.cards.generate_system_prompt())
-        # 备份然后重置避免回复过程中接收到新讯息导致计数错误
-        unreplied_count = config.unreplied_count
         config.unreplied_count = 0
-        user_prompt = config.memory.get_normalize_short_term_memory()  # 默认为当前short_term_memory_size条聊天记录
+        user_prompt = config.memory.get_normalize_short_term_memory()
         if config.thinking_mode_flag:
-            user_prompt, analysis = await config.thoughts.generate_group_prompt(config.memory, config.cards, unreplied_count)
+            user_prompt, analysis = await config.thoughts.generate_group_prompt(config.memory, config.cards, 0)
             if config.display_thinking and config.conversation_analysis_flag:
                 await self._reply(ctx, f"【分析】：{analysis}")
         self._generator.set_speakers([config.memory.assistant_name])
-        response = await self._generator.return_chat(user_prompt, system_prompt)
+        response = await self._generator.return_chat(user_prompt, config.memory.to_custom_names(config.cards.generate_system_prompt()))
         await config.memory.save_memory(role="assistant", content=response)
-
         if config.personate_mode:
-            # 添加用户信息
             if not config.group_mode and hasattr(config, 'user_info'):
                 response += f"\n用户：{config.user_info['qq_id']}-{config.user_info['qq_name']}"
             await self._send_personate_reply(ctx, response)
@@ -605,101 +413,62 @@ class Waifu(BasePlugin):
             await self._reply(ctx, f"{response}", True)
 
     async def _request_personal_group_reply(self, ctx: EventContext, user_launcher_id: str):
-        """
-        处理个人模式下的群聊消息
-        """
         group_launcher_id = ctx.event.launcher_id
         group_config = self.waifu_cache[group_launcher_id]
         user_config = self.waifu_cache[user_launcher_id]
-    
+
         sender = ctx.event.query.message_event.sender.member_name
-        msg = await self._vision(ctx)  # 处理消息内容
-    
-        # 保存到用户专属记忆
+        msg = await self._vision(ctx)
         await user_config.memory.save_memory(role=sender, content=msg)
         user_config.unreplied_count += 1
-    
-        # 使用用户专属配置处理回复
         await self._personal_group_reply(ctx, user_launcher_id)
 
     async def _personal_group_reply(self, ctx: EventContext, user_launcher_id: str):
-        """
-        个人模式下的群聊回复逻辑
-        """
         group_launcher_id = ctx.event.launcher_id
         group_config = self.waifu_cache[group_launcher_id]
         user_config = self.waifu_cache[user_launcher_id]
-        
         need_assistant_reply = False
-        
-        # 检查是否需要回复
+
         if group_config.group_message_chain and group_config.group_message_chain.has(platform_message.At(ctx.event.query.adapter.bot_account_id)):
             need_assistant_reply = True
         if user_config.unreplied_count >= user_config.memory.response_min_conversations:
             if random.random() < user_config.response_rate:
                 need_assistant_reply = True
-        
+
         group_config.group_message_chain = None
-        
         if need_assistant_reply:
             if not user_config.response_timers_flag:
                 user_config.response_timers_flag = True
-                # 使用用户专属配置生成回复
                 asyncio.create_task(self._delayed_personal_group_reply(ctx, user_launcher_id))
 
     async def _delayed_personal_group_reply(self, ctx: EventContext, user_launcher_id: str):
-        """
-        延迟处理个人模式下的群聊回复
-        """
         group_launcher_id = ctx.event.launcher_id
         user_config = self.waifu_cache[user_launcher_id]
-        
-        # 使用群聊的延迟设置
         delay = self.waifu_cache[group_launcher_id].group_response_delay
-        self.ap.logger.info(f"等待个人模式群聊回复 {user_launcher_id} {delay}秒")
         await asyncio.sleep(delay)
-        
         try:
-            # 重置未回复计数
             user_config.unreplied_count = 0
             user_config.response_timers_flag = False
-            
-            # 加载相关记忆
             if user_config.summarization_mode:
                 _, unreplied_conversations = user_config.memory.get_unreplied_msg(user_config.unreplied_count)
                 related_memories = await user_config.memory.load_memory(unreplied_conversations)
                 if related_memories:
                     user_config.cards.set_memory(related_memories)
-            
-            # 生成系统提示
             system_prompt = user_config.memory.to_custom_names(user_config.cards.generate_system_prompt())
-            
-            # 获取用户提示
             user_prompt = user_config.memory.get_normalize_short_term_memory()
-            
-            # 思考模式处理
             if user_config.thinking_mode_flag:
                 user_prompt, analysis = await user_config.thoughts.generate_group_prompt(user_config.memory, user_config.cards, 0)
                 if user_config.display_thinking and user_config.conversation_analysis_flag:
                     await self._reply(ctx, f"【分析】：{analysis}")
-            
-            # 生成回复
             self._generator.set_speakers([user_config.memory.assistant_name])
             response = await self._generator.return_chat(user_prompt, system_prompt)
-            
-            # 添加用户信息标识
             if hasattr(user_config, 'user_info'):
                 response += f"\n用户：{user_config.user_info['qq_id']}-{user_config.user_info['qq_name']}"
-            
-            # 保存回复到记忆
             await user_config.memory.save_memory(role="assistant", content=response)
-            
-            # 发送回复
             if user_config.personate_mode:
                 await self._send_personate_reply(ctx, response)
             else:
                 await self._reply(ctx, f"{response}", True)
-            
         except Exception as e:
             self.ap.logger.error(f"个人模式群聊回复出错: {e}")
             user_config.response_timers_flag = False
