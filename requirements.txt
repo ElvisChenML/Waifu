@@ -2,3 +2,4 @@ numpy
 pyyaml
 requests
 dashscope
+random
