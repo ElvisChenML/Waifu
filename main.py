@@ -380,8 +380,11 @@ class Waifu(BasePlugin):
                 else:
                     # 尝试查找匹配的记忆文件
                     found = False
+                    user_id_part = str(user_launcher_id.split("_user_")[1]) if "_user_" in user_launcher_id else ""
+                    
                     for cache_id in list(self.waifu_cache.keys()):
-                        if cache_id.endswith(user_launcher_id.split("_user_")[1]) and "_user_" in cache_id:
+                        cache_id_str = str(cache_id)
+                        if "_user_" in cache_id_str and user_id_part and cache_id_str.endswith(user_id_part):
                             self._stop_timer(cache_id)
                             self.waifu_cache[cache_id].memory.delete_local_files()
                             self.waifu_cache[cache_id].value_game.reset_value()
@@ -398,7 +401,7 @@ class Waifu(BasePlugin):
                 
                 # 先收集需要删除的用户ID
                 for user_launcher_id in list(self.waifu_cache.keys()):
-                    if "_user_" in user_launcher_id and user_launcher_id.startswith(f"{launcher_id}_user_"):
+                    if "_user_" in str(user_launcher_id) and str(user_launcher_id).startswith(f"{launcher_id}_user_"):
                         user_ids_to_delete.append(user_launcher_id)
                 
                 # 然后删除这些用户的记忆
