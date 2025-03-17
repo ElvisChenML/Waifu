@@ -26,6 +26,7 @@ COMMANDS = {
     "列出命令": "列出目前支援所有命令及介绍，用法：[列出命令]。",
     "全部记忆": "显示目前所有长短期记忆，用法：[全部记忆]。",
     "删除记忆": "删除所有长短期记忆，用法：[删除记忆]。",
+    "删除个人模式记忆": "删除个人模式下的用户记忆，用法：[删除个人模式记忆]删除所有个人用户记忆，[删除个人模式记忆+QQID]删除指定用户记忆。",
     "修改数值": "修改Value Game的数字，用法：[修改数值][数值]。",
     "态度": "显示当前Value Game所对应的“态度Manner”，用法：[态度]。",
     "加载配置": "重新加载所有配置文件（仅Waifu），用法：[加载配置]。",
@@ -100,7 +101,7 @@ class WaifuRunner(runner.RequestRunner):
         return
 
 
-@register(name="Waifu", description="Cuter than real waifu!", version="2.0.0", author="ElvisChenML")
+@register(name="Waifu", description="Cuter than real waifu!", version="1.9.8", author="ElvisChenML")
 class Waifu(BasePlugin):
     # 修改 __init__ 方法，初始化表情包管理器
     def __init__(self, host: APIHost):
@@ -334,6 +335,43 @@ class Waifu(BasePlugin):
             config.memory.delete_local_files()
             config.value_game.reset_value()
             response += "记忆已删除。"
+        elif msg.startswith("删除个人模式记忆"):
+            content = msg[8:].strip()
+            if content:
+                # 删除指定用户的记忆
+                user_id = content
+                user_launcher_id = f"{launcher_id}_user_{user_id}"
+                if user_launcher_id in self.waifu_cache:
+                    self._stop_timer(user_launcher_id)
+                    self.waifu_cache[user_launcher_id].memory.delete_local_files()
+                    self.waifu_cache[user_launcher_id].value_game.reset_value()
+                    # 从缓存中移除该用户
+                    del self.waifu_cache[user_launcher_id]
+                    response = f"已删除用户 {user_id} 的个人模式记忆。"
+                else:
+                    response = f"未找到用户 {user_id} 的个人模式记忆。"
+            else:
+                # 删除所有个人用户的记忆
+                deleted_count = 0
+                user_ids_to_delete = []
+                
+                # 先收集需要删除的用户ID
+                for user_launcher_id in list(self.waifu_cache.keys()):
+                    if "_user_" in user_launcher_id:
+                        user_ids_to_delete.append(user_launcher_id)
+                
+                # 然后删除这些用户的记忆
+                for user_launcher_id in user_ids_to_delete:
+                    self._stop_timer(user_launcher_id)
+                    self.waifu_cache[user_launcher_id].memory.delete_local_files()
+                    self.waifu_cache[user_launcher_id].value_game.reset_value()
+                    del self.waifu_cache[user_launcher_id]
+                    deleted_count += 1
+                
+                if deleted_count > 0:
+                    response = f"已删除所有个人模式记忆，共 {deleted_count} 个用户。"
+                else:
+                    response = "没有找到个人模式记忆。"
         elif msg.startswith("修改数值"):
             value = int(msg[4:].strip())
             config.value_game.change_manner_value(value)
