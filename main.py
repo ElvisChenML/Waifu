@@ -357,10 +357,18 @@ class Waifu(BasePlugin):
                 # 检查是否包含群号前缀
                 if "_" in content:
                     # 格式为 "群号_用户ID"
-                    user_launcher_id = f"{launcher_id}_user_{content}"
+                    parts = content.split("_")
+                    if len(parts) == 2:
+                        group_id, user_id = parts
+                        user_launcher_id = f"{group_id}_user_{user_id}"
+                    else:
+                        # 格式不正确，尝试使用当前群号
+                        user_launcher_id = f"{launcher_id}_user_{content}"
                 else:
                     # 仅提供用户ID
                     user_launcher_id = f"{launcher_id}_user_{content}"
+                
+                self.ap.logger.info(f"尝试删除用户记忆: {user_launcher_id}")
                 
                 if user_launcher_id in self.waifu_cache:
                     self._stop_timer(user_launcher_id)
@@ -370,7 +378,20 @@ class Waifu(BasePlugin):
                     del self.waifu_cache[user_launcher_id]
                     response = f"已删除用户 {content} 的个人模式记忆。"
                 else:
-                    response = f"未找到用户 {content} 的个人模式记忆。"
+                    # 尝试查找匹配的记忆文件
+                    found = False
+                    for cache_id in list(self.waifu_cache.keys()):
+                        if cache_id.endswith(user_launcher_id.split("_user_")[1]) and "_user_" in cache_id:
+                            self._stop_timer(cache_id)
+                            self.waifu_cache[cache_id].memory.delete_local_files()
+                            self.waifu_cache[cache_id].value_game.reset_value()
+                            del self.waifu_cache[cache_id]
+                            found = True
+                    
+                    if found:
+                        response = f"已删除用户 {content} 的个人模式记忆。"
+                    else:
+                        response = f"未找到用户 {content} 的个人模式记忆。"
             else:
                 # 删除所有个人用户的记忆
                 user_ids_to_delete = []
@@ -392,7 +413,6 @@ class Waifu(BasePlugin):
                     response = f"已删除当前群/聊天中的所有个人模式记忆，共 {deleted_count} 个用户。"
                 else:
                     response = "当前群/聊天中没有找到个人模式记忆。"
-                    
         elif msg.startswith("修改数值"):
             value = int(msg[4:].strip())
             config.value_game.change_manner_value(value)
