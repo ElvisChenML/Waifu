@@ -338,13 +338,13 @@ class Waifu(BasePlugin):
             config.value_game.reset_value()
             response += "记忆已删除。"
         elif msg.startswith("删除个人模式记忆"):
-            content = msg[8:].strip()  # 修正索引从4改为8
+            content = msg[8:].strip()
             if content:
                 # 删除指定用户的记忆
-                user_id = content
+                user_id = str(content)  # 确保user_id是字符串类型
                 try:
-                    # 尝试转换为整数，但保持字符串形式
-                    int(user_id)  # 仅作为验证
+                    # 验证是否为有效的QQ号
+                    int(user_id)
                     user_launcher_id = f"{launcher_id}_user_{user_id}"
                     if user_launcher_id in self.waifu_cache:
                         self._stop_timer(user_launcher_id)
@@ -363,17 +363,20 @@ class Waifu(BasePlugin):
                 user_ids_to_delete = []
                 
                 # 先收集需要删除的用户ID
-                for user_launcher_id in list(self.waifu_cache.keys()):
-                    if "_user_" in user_launcher_id:
-                        user_ids_to_delete.append(user_launcher_id)
+                for cache_id in list(self.waifu_cache.keys()):
+                    if "_user_" in cache_id and cache_id.startswith(f"{launcher_id}_user_"):
+                        user_ids_to_delete.append(cache_id)
                 
                 # 然后删除这些用户的记忆
                 for user_launcher_id in user_ids_to_delete:
-                    self._stop_timer(user_launcher_id)
-                    self.waifu_cache[user_launcher_id].memory.delete_local_files()
-                    self.waifu_cache[user_launcher_id].value_game.reset_value()
-                    del self.waifu_cache[user_launcher_id]
-                    deleted_count += 1
+                    try:
+                        self._stop_timer(user_launcher_id)
+                        self.waifu_cache[user_launcher_id].memory.delete_local_files()
+                        self.waifu_cache[user_launcher_id].value_game.reset_value()
+                        del self.waifu_cache[user_launcher_id]
+                        deleted_count += 1
+                    except Exception as e:
+                        self.ap.logger.error(f"删除用户记忆时出错 {user_launcher_id}: {str(e)}")
                 
                 if deleted_count > 0:
                     response = f"已删除所有个人模式记忆，共 {deleted_count} 个用户。"
