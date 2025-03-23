@@ -140,11 +140,3 @@ class Cards:
         else:
             # 其他类型，强制转换为字符串
             return prefix + str(value)
-
-    def merge_personal_config(self, personal_config: dict):
-        """合并个性化提示词配置"""
-        self._profile = personal_config.get("Profile", self._profile)
-        self._skills = personal_config.get("Skills", self._skills)
-        self._background = personal_config.get("Background", self._background)
-        self._rules = personal_config.get("Rules", self._rules)
-        # 保留其他配置不变
