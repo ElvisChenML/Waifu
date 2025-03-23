@@ -46,7 +46,7 @@ COMMANDS = {
     "绘画": "使用AI生成图片，用法：[绘画][提示词] 竖着/横着。",
     "群聊模式": "切换到群聊统一回复模式，用法：[群聊模式]",
     "个人模式": "切换到用户单独聊天模式，用法：[个人模式]",
-    "个性化提示词": "管理个性化提示词，用法：[个性化提示词]查看当前状态，[个性化提示词开启/关闭]开启或关闭功能。",
+    "个性化提示词": "管理个性化提示词(仅个人模式下生效)，用法：[个性化提示词]查看当前状态，[个性化提示词开启/关闭]开启或关闭功能。",
 }
 
 class WaifuCache:
@@ -472,15 +472,18 @@ class Waifu(BasePlugin):
             await self._reply(ctx, response)
             return False, False  # 直接返回，避免重复发送
         elif msg.startswith("个性化提示词"):
-            if msg == "个性化提示词":
-                status = "开启" if config.use_personal_prompts else "关闭"
-                response = f"个性化提示词功能当前状态：{status}"
-            elif msg == "个性化提示词开启":
-                config.use_personal_prompts = True
-                response = "个性化提示词功能已开启"
-            elif msg == "个性化提示词关闭":
-                config.use_personal_prompts = False
-                response = "个性化提示词功能已关闭"
+            if not config.group_mode:  # 只在个人模式下处理个性化提示词命令
+                if msg == "个性化提示词":
+                    status = "开启" if config.use_personal_prompts else "关闭"
+                    response = f"个性化提示词功能当前状态：{status}"
+                elif msg == "个性化提示词开启":
+                    config.use_personal_prompts = True
+                    response = "个性化提示词功能已开启"
+                elif msg == "个性化提示词关闭":
+                    config.use_personal_prompts = False
+                    response = "个性化提示词功能已关闭"
+            else:
+                response = "个性化提示词功能仅在个人模式下可用，请先使用[个人模式]命令切换模式"
         else:
             need_assistant_reply = True
             need_save_memory = True
@@ -537,28 +540,10 @@ class Waifu(BasePlugin):
         sender = ctx.event.query.message_event.sender.member_name
         sender_id = ctx.event.sender_id
         msg = await self._vision(ctx)  # 用眼睛看消息？
-        
-        # 检查是否启用个性化提示词
-        if config.use_personal_prompts:
-            # 构建个性化配置文件路径
-            personal_config_path = f"data/plugins/Waifu/config/personalConfiguration/{launcher_id}_{sender_id}.yaml"
-            if os.path.exists(personal_config_path):
-                # 加载个性化配置
-                personal_config = ConfigManager(f"data/plugins/Waifu/config/personalConfiguration/{launcher_id}_{sender_id}", None)
-                await personal_config.load_config(completion=False)
-                # 临时保存原始配置
-                original_config = copy.deepcopy(config.cards)
-                # 合并个性化配置到角色卡
-                config.cards.merge_personal_config(personal_config.data)
-                self.ap.logger.info(f"已加载用户 {sender_id} 的个性化提示词配置")
     
         await config.memory.save_memory(role=sender, content=msg)
         config.unreplied_count += 1
         await self._group_reply(ctx)
-        
-        # 如果使用了个性化配置，在处理完后恢复原始配置
-        if config.use_personal_prompts and 'original_config' in locals():
-            config.cards = original_config
 
     async def _group_reply(self, ctx: EventContext):
         launcher_id = ctx.event.launcher_id
@@ -650,7 +635,7 @@ class Waifu(BasePlugin):
         sender_id = ctx.event.sender_id
         msg = await self._vision(ctx)  # 处理消息内容
 
-        # 检查是否启用个性化提示词
+        # 在个人模式下启用个性化提示词
         if group_config.use_personal_prompts:
             # 构建个性化配置文件路径
             personal_config_path = f"data/plugins/Waifu/config/personalConfiguration/{group_launcher_id}_{sender_id}.yaml"
