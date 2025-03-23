@@ -342,6 +342,45 @@ class Waifu(BasePlugin):
             if content:
                 # 删除指定用户的记忆
                 user_id = content
+                # 确保user_id是字符串类型
+                user_id = str(user_id)
+                user_launcher_id = f"{launcher_id}_user_{user_id}"
+                if user_launcher_id in self.waifu_cache:
+                    self._stop_timer(user_launcher_id)
+                    self.waifu_cache[user_launcher_id].memory.delete_local_files()
+                    self.waifu_cache[user_launcher_id].value_game.reset_value()
+                    # 从缓存中移除该用户
+                    del self.waifu_cache[user_launcher_id]
+                    response = f"已删除用户 {user_id} 的个人模式记忆。"
+                else:
+                    response = f"未找到用户 {user_id} 的个人模式记忆。"
+            else:
+                # 删除所有个人用户的记忆
+                deleted_count = 0
+                user_ids_to_delete = []
+                
+                # 先收集需要删除的用户ID
+                for user_launcher_id in list(self.waifu_cache.keys()):
+                    if "_user_" in user_launcher_id:
+                        user_ids_to_delete.append(user_launcher_id)
+                
+                # 然后删除这些用户的记忆
+                for user_launcher_id in user_ids_to_delete:
+                    self._stop_timer(user_launcher_id)
+                    self.waifu_cache[user_launcher_id].memory.delete_local_files()
+                    self.waifu_cache[user_launcher_id].value_game.reset_value()
+                    del self.waifu_cache[user_launcher_id]
+                    deleted_count += 1
+                
+                if deleted_count > 0:
+                    response = f"已删除所有个人模式记忆，共 {deleted_count} 个用户。"
+                else:
+                    response = "没有找到个人模式记忆。"
+        elif msg.startswith("删除个人模式记忆"):
+            content = msg[8:].strip()
+            if content:
+                # 删除指定用户的记忆
+                user_id = content
                 user_launcher_id = f"{launcher_id}_user_{user_id}"
                 if user_launcher_id in self.waifu_cache:
                     self._stop_timer(user_launcher_id)
