@@ -47,6 +47,7 @@ COMMANDS = {
     "群聊模式": "切换到群聊统一回复模式，用法：[群聊模式]",
     "个人模式": "切换到用户单独聊天模式，用法：[个人模式]",
     "个性化提示词": "管理个性化提示词(仅个人模式下生效)，用法：[个性化提示词]查看当前状态，[个性化提示词开启/关闭]开启或关闭功能。",
+    "个人好感度": "查看个人模式下指定用户的好感度，用法：[个人好感度+QQID]查看指定用户好感度。",
 }
 
 class WaifuCache:
@@ -492,6 +493,36 @@ class Waifu(BasePlugin):
                     response = "个性化提示词功能已关闭"
             else:
                 response = "个性化提示词功能仅在个人模式下可用，请先使用[个人模式]命令切换模式"
+        elif msg.startswith("个人好感度"):
+            content = msg[5:].strip()
+            if not config.group_mode:
+                response = "当前已处于个人模式，请直接使用[态度]命令查看当前用户好感度。"
+            else:
+                # 获取群聊ID
+                group_id = launcher_id
+                
+                if not content:
+                    # 不再支持查看所有用户好感度，需要指定用户ID
+                    response = "请指定要查询的用户ID，例如：个人好感度123456789"
+                else:
+                    # 查看特定用户好感度
+                    user_id = content
+                    try:
+                        # 验证是否为有效的QQ号
+                        int(user_id)
+                        user_launcher_id = f"{group_id}_user_{user_id}"
+                        
+                        if user_launcher_id in self.waifu_cache:
+                            user_cache = self.waifu_cache[user_launcher_id]
+                            value = user_cache.value_game._value
+                            manner = user_cache.value_game.get_manner_description()
+                            user_name = user_cache.user_info.get("qq_name", user_id) if hasattr(user_cache, "user_info") else user_id
+                            
+                            response = f"用户 {user_name}({user_id}) 的好感度为: {value}\n态度: {manner}"
+                        else:
+                            response = f"未找到用户 {user_id} 的个人模式记录"
+                    except ValueError:
+                        response = "请输入有效的QQ号"
         else:
             need_assistant_reply = True
             need_save_memory = True
