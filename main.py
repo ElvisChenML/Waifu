@@ -338,22 +338,25 @@ class Waifu(BasePlugin):
             config.value_game.reset_value()
             response += "记忆已删除。"
         elif msg.startswith("删除个人模式记忆"):
-            content = msg[8:].strip()
+            content = msg[8:].strip()  # 修正索引从4改为8
             if content:
                 # 删除指定用户的记忆
                 user_id = content
-                # 确保user_id是字符串类型
-                user_id = str(user_id)
-                user_launcher_id = f"{launcher_id}_user_{user_id}"
-                if user_launcher_id in self.waifu_cache:
-                    self._stop_timer(user_launcher_id)
-                    self.waifu_cache[user_launcher_id].memory.delete_local_files()
-                    self.waifu_cache[user_launcher_id].value_game.reset_value()
-                    # 从缓存中移除该用户
-                    del self.waifu_cache[user_launcher_id]
-                    response = f"已删除用户 {user_id} 的个人模式记忆。"
-                else:
-                    response = f"未找到用户 {user_id} 的个人模式记忆。"
+                try:
+                    # 尝试转换为整数，但保持字符串形式
+                    int(user_id)  # 仅作为验证
+                    user_launcher_id = f"{launcher_id}_user_{user_id}"
+                    if user_launcher_id in self.waifu_cache:
+                        self._stop_timer(user_launcher_id)
+                        self.waifu_cache[user_launcher_id].memory.delete_local_files()
+                        self.waifu_cache[user_launcher_id].value_game.reset_value()
+                        # 从缓存中移除该用户
+                        del self.waifu_cache[user_launcher_id]
+                        response = f"已删除用户 {user_id} 的个人模式记忆。"
+                    else:
+                        response = f"未找到用户 {user_id} 的个人模式记忆。"
+                except ValueError:
+                    response = "请输入有效的用户ID（纯数字）"
             else:
                 # 删除所有个人用户的记忆
                 deleted_count = 0
