@@ -506,7 +506,7 @@ class Waifu(BasePlugin):
             "data/plugins/Waifu/cards", 
             "data/plugins/Waifu/config", 
             "data/plugins/Waifu/data",
-            "data/plugins/Waifu/images"  # 添加表情包目录
+            "data/plugins/Waifu/images",  # 添加表情包目录
             "data/plugins/Waifu/config/personalConfiguration"  # 个性化配置目录
         ]
     
