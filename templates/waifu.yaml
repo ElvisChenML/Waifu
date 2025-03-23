@@ -9,7 +9,7 @@ langbot_group_rule: false # 是否继承LangBot的群消息响应规则；若启
 ignore_prefix: ["/"]
 
 # 思考模块
-conversation_analysis: False # 是否启用场景分析。分析可以更好的理解会话场景，但有可能造成无法回答专业问题的负面效果。
+conversation_analysis: False # 是否启用场景分析。分析可以更好地理解会话场景，但有可能造成无法回答专业问题的负面效果。
 display_thinking: false # 是否显示内心活动。
 analyze_max_conversations: 9 # 用于生成分析的最大对话数量。
 max_thinking_words: 30 # 最大思考字数，此配置不是硬性限制，该配置体现于提示语中。
@@ -50,3 +50,6 @@ superbed_token: "123456789" # 聚合图床token
 # 绘画设置
 model: "wanx2.1-t2i-turbo" # 模型名称
 api_key: "your_api_key_here" # API密钥
+
+# 新增群友个性化提示词配置
+use_personal_prompts: false # 是否启用群友个性化提示词功能

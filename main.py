@@ -231,6 +231,12 @@ class Waifu(BasePlugin):
             else:
                 # 使用群聊模式处理请求
                 await self._request_group_reply(ctx)
+            
+                user_config_id = f"{ctx.event.launcher_id}_{ctx.event.sender_id}"
+                user_config_path = f"data/plugins/Waifu/config/{user_config_id}.yaml"
+                if os.path.exists(user_config_path):
+                    # 加载用户专属配置
+                    await self._load_config(user_launcher_id, "person")
 
     async def _load_config(self, launcher_id: str, launcher_type: str):
         self.waifu_cache[launcher_id] = WaifuCache(self.ap, launcher_id, launcher_type)
@@ -244,7 +250,16 @@ class Waifu(BasePlugin):
             character = f"default_{launcher_type}"
         else:
             character = character.replace(".yaml", "")
-
+        
+        if config_mgr.data.get("use_personal_prompts", False):
+            user_id = f"{ctx.event.launcher_id}_{ctx.event.sender_id}"
+            personal_config_path = f"data/plugins/Waifu/config/{user_id}.yaml"
+            if os.path.exists(personal_config_path):
+                personal_config = ConfigManager(personal_config_path)
+                await personal_config.load_config()
+                # 合并个性化配置到角色卡
+                cache.cards.merge_personal_config(personal_config.data)
+            
         cache.narrate_intervals = config_mgr.data.get("intervals", [])
         cache.story_mode_flag = config_mgr.data.get("story_mode", True)
         cache.thinking_mode_flag = config_mgr.data.get("thinking_mode", True)
