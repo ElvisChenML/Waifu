@@ -21,6 +21,7 @@ from plugins.Waifu.systems.narrator import Narrator
 from plugins.Waifu.systems.value_game import ValueGame
 from plugins.Waifu.organs.thoughts import Thoughts
 from plugins.Waifu.cells.painting import Painting
+from plugins.Waifu.cells.time_service import TimeService
 
 COMMANDS = {
     "列出命令": "列出目前支援所有命令及介绍，用法：[列出命令]。",
