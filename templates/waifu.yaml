@@ -51,13 +51,3 @@ superbed_token: "123456789" # 聚合图床token
 # 绘画设置
 model: "wanx2.1-t2i-turbo" # 模型名称
 api_key: "your_api_key_here" # API密钥
-
-# 时间服务设置
-time_service:
-  enabled: true # 是否启用时间服务，启用后会在向大模型发送消息时附带当前时间信息
-  ntp_server: "ntp.aliyun.com" # NTP授时服务器地址
-  timezone: "Asia/Shanghai" # 时区设置，使用pytz支持的时区名称
-  include_date: true # 是否包含日期信息
-  include_time: true # 是否包含时间信息
-  include_timezone: false # 是否在时间信息中包含时区
-  sync_interval: 3600 # NTP同步间隔（秒），默认每小时同步一次

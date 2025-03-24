@@ -64,7 +64,6 @@ class WaifuCache:
         self.cards = Cards(ap)
         self.narrator = Narrator(ap, launcher_id)
         self.thoughts = Thoughts(ap)
-        self.time_service = TimeService(ap)  # 初始化时间服务
         self.conversation_analysis_flag = True
         self.thinking_mode_flag = True
         self.story_mode_flag = True
@@ -274,8 +273,6 @@ class Waifu(BasePlugin):
         cache.use_personal_prompts = config_mgr.data.get("use_personal_prompts", False)
         self._emoji_manager.use_superbed = config_mgr.data.get("use_superbed", True)  # 默认不使用聚合图床
         self._emoji_manager.superbed_token = config_mgr.data.get("superbed_token", "123456789")
-        # 加载时间服务配置
-        await cache.time_service.load_config(launcher_id)
         await cache.memory.load_config(character, launcher_id, launcher_type)
         await cache.value_game.load_config(character, launcher_id, launcher_type)
         await cache.cards.load_config(character, launcher_type)
