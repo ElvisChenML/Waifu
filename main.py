@@ -495,8 +495,8 @@ class Waifu(BasePlugin):
                 response = "个性化提示词功能仅在个人模式下可用，请先使用[个人模式]命令切换模式"
         elif msg.startswith("个人好感度"):
             content = msg[5:].strip()
-            if not config.group_mode:
-                response = "当前已处于个人模式，请直接使用[态度]命令查看当前用户好感度。"
+            if config.group_mode:
+                response = "此命令只有在个人模式下可以使用，群聊模式请直接使用[态度]命令查看好感度。"
             else:
                 # 获取群聊ID
                 group_id = launcher_id
