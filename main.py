@@ -631,7 +631,8 @@ class Waifu(BasePlugin):
 
         try:
             # 触发回复后，首先检查是否满足预设回复形式，预设回复不用脑子，不走模型。
-            response = self._response_presets(launcher_id)
+            # 确保传递的是字符串类型的launcher_id
+            response = self._response_presets(str(launcher_id))
             if response:
                 config.unreplied_count = 0
                 await config.memory.save_memory(role="assistant", content=response)
@@ -644,6 +645,9 @@ class Waifu(BasePlugin):
 
         except Exception as e:
             self.ap.logger.error(f"Error occurred during group reply: {e}")
+            # 添加更详细的错误信息
+            import traceback
+            self.ap.logger.error(f"详细错误: {traceback.format_exc()}")
             raise
 
         finally:
@@ -751,6 +755,16 @@ class Waifu(BasePlugin):
         await asyncio.sleep(delay)
         
         try:
+            # 检查是否有预设回复
+            # 确保传递的是字符串类型的user_launcher_id
+            response = self._response_presets(str(user_launcher_id))
+            if response:
+                user_config.unreplied_count = 0
+                await user_config.memory.save_memory(role="assistant", content=response)
+                await self._reply(ctx, f"{response}", True)
+                user_config.response_timers_flag = False
+                return
+                
             # 重置未回复计数
             user_config.unreplied_count = 0
             user_config.response_timers_flag = False
@@ -790,9 +804,15 @@ class Waifu(BasePlugin):
                 await self._send_personate_reply(ctx, response)
             else:
                 await self._reply(ctx, f"{response}", True)
-            
+        
         except Exception as e:
             self.ap.logger.error(f"个人模式群聊回复出错: {e}")
+            # 添加更详细的错误信息
+            import traceback
+            self.ap.logger.error(f"详细错误: {traceback.format_exc()}")
+            raise
+        
+        finally:
             user_config.response_timers_flag = False
 
     async def _delayed_person_reply(self, ctx: EventContext):
@@ -1059,20 +1079,29 @@ class Waifu(BasePlugin):
             )
         )
 
-    def _response_presets(self, launcher_id: str):
+    def _response_presets(self, launcher_id):
         """
         预设形式的回复：复读
         """
         # 确保launcher_id是字符串类型
-        launcher_id = str(launcher_id)
+        if isinstance(launcher_id, dict):
+            self.ap.logger.warning(f"launcher_id是字典类型: {launcher_id}，尝试转换为字符串")
+            # 尝试从字典中提取launcher_id
+            if 'launcher_id' in launcher_id:
+                launcher_id = str(launcher_id['launcher_id'])
+            else:
+                # 如果无法从字典中提取，生成一个唯一标识符
+                launcher_id = str(id(launcher_id))
+        else:
+            launcher_id = str(launcher_id)
         
         # 检查launcher_id是否在缓存中
         if launcher_id not in self.waifu_cache:
             self.ap.logger.warning(f"launcher_id {launcher_id} 不在waifu_cache中")
             return None
-            
-        response = self._check_repeat(launcher_id)
-        return response
+        
+    response = self._check_repeat(launcher_id)
+    return response
 
     def _check_repeat(self, launcher_id: int) -> str:
         return self.waifu_cache[launcher_id].memory.get_repeat_msg()
