@@ -2,3 +2,5 @@ numpy
 pyyaml
 requests
 dashscope
+ntplib>=0.4.0
+pytz>=2023.3

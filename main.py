@@ -64,6 +64,7 @@ class WaifuCache:
         self.cards = Cards(ap)
         self.narrator = Narrator(ap, launcher_id)
         self.thoughts = Thoughts(ap)
+        self.time_service = TimeService(ap)  # 初始化时间服务
         self.conversation_analysis_flag = True
         self.thinking_mode_flag = True
         self.story_mode_flag = True
@@ -277,6 +278,7 @@ class Waifu(BasePlugin):
         await cache.value_game.load_config(character, launcher_id, launcher_type)
         await cache.cards.load_config(character, launcher_type)
         await cache.narrator.load_config()
+        await cache.time_service.load_config(config_mgr.data)  # 加载时间服务配置
 
         self._set_jail_break(cache, "off")
         if cache.jail_break_mode in ["before", "after", "end", "all"]:
@@ -643,6 +645,12 @@ class Waifu(BasePlugin):
                 config.cards.set_memory(related_memories)
         # 如果是群聊则不修改为自定义角色名
         system_prompt = config.memory.to_custom_names(config.cards.generate_system_prompt())
+        
+        # 获取时间信息并添加到系统提示中
+        time_info = await config.time_service.get_time_info()
+        if time_info:
+            system_prompt = f"{system_prompt}\n\n{time_info}"
+            
         # 备份然后重置避免回复过程中接收到新讯息导致计数错误
         unreplied_count = config.unreplied_count
         config.unreplied_count = 0
@@ -746,6 +754,11 @@ class Waifu(BasePlugin):
             # 生成系统提示
             system_prompt = user_config.memory.to_custom_names(user_config.cards.generate_system_prompt())
             
+            # 获取时间信息并添加到系统提示中
+            time_info = await user_config.time_service.get_time_info()
+            if time_info:
+                system_prompt = f"{system_prompt}\n\n{time_info}"
+            
             # 获取用户提示
             user_prompt = user_config.memory.get_normalize_short_term_memory()
             
@@ -826,6 +839,12 @@ class Waifu(BasePlugin):
         launcher_id = ctx.event.launcher_id
         config = self.waifu_cache[launcher_id]
         system_prompt = config.memory.to_custom_names(config.cards.generate_system_prompt())
+        
+        # 获取时间信息并添加到系统提示中
+        time_info = await config.time_service.get_time_info()
+        if time_info:
+            system_prompt = f"{system_prompt}\n\n{time_info}"
+            
         self._generator.set_speakers([config.memory.assistant_name])
         response = await self._generator.return_chat(user_prompt, system_prompt)
         await config.memory.save_memory(role="assistant", content=response)
