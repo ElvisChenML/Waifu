@@ -35,6 +35,10 @@ class Generator:
         self._jail_break_dict = {}
         self._jail_break_type = ""
         self._speakers = []
+        # 添加NTP相关属性的初始化
+        self.use_ntp_time = False
+        self.ntp_server = "ntp.aliyun.com"
+        self.timezone_offset = 8
 
     def _get_question_prompts(self, user_prompt: str, output_format: str = "JSON list", system_prompt: str = None) -> typing.List[llm_entities.Message]:
         messages = []
@@ -287,13 +291,26 @@ class Generator:
     def messages_to_readable_str(self, messages: typing.List[llm_entities.Message]) -> str:
         return "\n".join(message.readable_str() for message in messages)
 
+    def set_ntp_config(self, use_ntp_time: bool, ntp_server: str, timezone_offset: int):
+        """
+        设置NTP时间配置
+        
+        Args:
+            use_ntp_time: 是否使用NTP时间
+            ntp_server: NTP服务器地址
+            timezone_offset: 时区偏移量
+        """
+        self.use_ntp_time = use_ntp_time
+        self.ntp_server = ntp_server
+        self.timezone_offset = timezone_offset
+
     def get_chinese_current_time(self):
         """
         获取当前中文格式时间
         如果启用了NTP时间同步，则从NTP服务器获取时间
         否则使用本地系统时间
         """
-        if hasattr(self, 'use_ntp_time') and self.use_ntp_time:
+        if self.use_ntp_time:
             try:
                 from plugins.Waifu.cells.ntp_time import NTPClient
                 ntp_client = NTPClient(server=self.ntp_server)
