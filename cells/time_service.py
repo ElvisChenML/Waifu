@@ -1,129 +1,78 @@
 import ntplib
-import time
 import datetime
 import pytz
-import functools
-import logging
-from pkg.core import app
-
-
-def handle_errors(func):
-    @functools.wraps(func)
-    async def wrapper(*args, **kwargs):
-        try:
-            return await func(*args, **kwargs)
-        except Exception as e:
-            # self.ap.logger 是类的属性，这里使用 args[0] 代表实例对象
-            args[0].ap.logger.error(f"时间服务错误：{e}")
-            return None
-
-    return wrapper
-
+import time
 
 class TimeService:
-    """
-    时间服务类，用于获取NTP服务器时间并转换为指定时区的时间
-    """
-
-    ap: app.Application
-
-    def __init__(self, ap: app.Application):
-        """
-        初始化时间服务
-        :param ap: Application实例
-        """
+    def __init__(self, ap):
         self.ap = ap
-        self.enabled = False
-        self.timezone = "Asia/Shanghai"
         self.ntp_server = "ntp.aliyun.com"
-        self.sync_interval = 3600  # 默认每小时同步一次
+        self.timezone = "Asia/Shanghai"  # 默认时区
+        self.use_ntp_time = True  # 默认启用NTP时间
         self.last_sync_time = 0
-        self.time_offset = 0  # 本地时间与NTP服务器时间的偏差
-        self.ntp_client = ntplib.NTPClient()
+        self.time_offset = 0  # 本地时间与NTP时间的偏移量
+        self.sync_interval = 3600  # 同步间隔，默认1小时
 
     async def load_config(self, config_data):
-        """
-        加载配置
-        :param config_data: 配置数据
-        """
-        if "time_service" in config_data:
-            time_service_config = config_data["time_service"]
-            self.enabled = time_service_config.get("enabled", False)
-            self.timezone = time_service_config.get("timezone", "Asia/Shanghai")
-            self.ntp_server = time_service_config.get("ntp_server", "ntp.aliyun.com")
-            self.sync_interval = time_service_config.get("sync_interval", 3600)
-            
-            # 如果启用了时间服务，立即同步一次时间
-            if self.enabled:
-                await self.sync_time()
+        """从配置中加载时区和NTP开关设置"""
+        self.timezone = config_data.get("timezone", "Asia/Shanghai")
+        self.use_ntp_time = config_data.get("use_ntp_time", True)
+        self.ntp_server = config_data.get("ntp_server", "ntp.aliyun.com")
+        self.sync_interval = config_data.get("ntp_sync_interval", 3600)
 
-    @handle_errors
     async def sync_time(self):
-        """
-        与NTP服务器同步时间
-        """
-        if not self.enabled:
+        """与NTP服务器同步时间"""
+        if not self.use_ntp_time:
             return
             
+        # 检查是否需要同步（避免频繁同步）
         current_time = time.time()
-        
-        # 检查是否需要同步时间
         if current_time - self.last_sync_time < self.sync_interval:
             return
             
         try:
-            # 获取NTP服务器时间
-            response = self.ntp_client.request(self.ntp_server, version=3)
-            # 计算本地时间与NTP服务器时间的偏差
+            client = ntplib.NTPClient()
+            response = client.request(self.ntp_server, timeout=5)
             self.time_offset = response.offset
             self.last_sync_time = current_time
-            self.ap.logger.info(f"与NTP服务器{self.ntp_server}同步时间成功，偏差：{self.time_offset:.6f}秒")
+            self.ap.logger.info(f"成功与NTP服务器{self.ntp_server}同步时间，偏移量：{self.time_offset}秒")
         except Exception as e:
-            self.ap.logger.error(f"与NTP服务器{self.ntp_server}同步时间失败：{e}")
+            self.ap.logger.error(f"NTP时间同步失败: {str(e)}")
 
-    @handle_errors
-    async def get_current_time(self):
-        """
-        获取当前时间，如果启用了时间服务，则返回NTP校准后的时间
-        :return: 当前时间的datetime对象
-        """
-        if not self.enabled:
-            return None
+    def get_current_time(self):
+        """获取当前时间，如果启用了NTP，则使用校正后的时间"""
+        if self.use_ntp_time:
+            # 使用本地时间加上偏移量
+            current_time = time.time() + self.time_offset
+        else:
+            current_time = time.time()
             
-        # 检查是否需要同步时间
-        await self.sync_time()
-        
-        # 获取校准后的当前时间戳
-        current_timestamp = time.time() + self.time_offset
-        
         # 转换为datetime对象
-        utc_time = datetime.datetime.fromtimestamp(current_timestamp, tz=pytz.UTC)
+        dt = datetime.datetime.fromtimestamp(current_time)
         
-        # 转换为指定时区的时间
+        # 设置时区
         try:
-            local_timezone = pytz.timezone(self.timezone)
-            local_time = utc_time.astimezone(local_timezone)
-            return local_time
+            tz = pytz.timezone(self.timezone)
+            dt = dt.astimezone(tz)
         except Exception as e:
-            self.ap.logger.error(f"时区转换失败：{e}")
-            return utc_time
-
-    @handle_errors
-    async def get_time_info(self):
-        """
-        获取格式化的时间信息，用于发送给大模型
-        :return: 格式化的时间信息字符串
-        """
-        if not self.enabled:
+            self.ap.logger.error(f"时区设置失败: {str(e)}，使用系统默认时区")
+            
+        return dt
+    
+    def get_formatted_time(self, format_str="%Y年%m月%d日%H时%M分"):
+        """获取格式化的时间字符串"""
+        dt = self.get_current_time()
+        return dt.strftime(format_str)
+    
+    def get_time_context(self):
+        """获取用于发送给大模型的时间上下文"""
+        if not self.use_ntp_time:
             return ""
             
-        current_time = await self.get_current_time()
-        if not current_time:
-            return ""
-            
-        # 格式化时间信息
-        weekday_names = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
-        weekday = weekday_names[current_time.weekday()]
+        dt = self.get_current_time()
+        formatted_time = self.get_formatted_time()
         
-        time_info = f"当前时间：{current_time.strftime('%Y年%m月%d日 %H:%M:%S')} {weekday}，时区：{self.timezone}"
-        return time_info
+        # 构建时间上下文
+        time_context = f"当前时间是{formatted_time}。"
+        
+        return time_context

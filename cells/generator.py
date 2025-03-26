@@ -287,6 +287,29 @@ class Generator:
     def messages_to_readable_str(self, messages: typing.List[llm_entities.Message]) -> str:
         return "\n".join(message.readable_str() for message in messages)
 
+    async def generate_response(self, launcher_id: str, launcher_type: str, waifu_data, query: core_entities.Query, system_prompt: str, user_prompt: str, temperature: float = 0.7, max_tokens: int = 1024, top_p: float = 0.9, frequency_penalty: float = 0.0, presence_penalty: float = 0.0, stop: list = None, model: str = None, stream: bool = False, thinking_mode: bool = False, thinking_content: str = "", jail_break_mode: str = "off", jail_break_before: str = "", jail_break_after: str = "", jail_break_end: str = "", use_personal_prompts: bool = False, user_id: str = None):
+        # 获取时间上下文
+        time_context = ""
+        if hasattr(waifu_data, 'time_service') and waifu_data.time_service.use_ntp_time:
+            time_context = waifu_data.time_service.get_time_context()
+            if time_context:
+                system_prompt = time_context + "\n" + system_prompt
+                
+        # 构建请求
+        request = llm_entities.Request(
+            query=query,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            top_p=top_p,
+            frequency_penalty=frequency_penalty,
+            presence_penalty=presence_penalty,
+            stop=stop,
+            model=model,
+            stream=stream
+        )
+        
     def get_chinese_current_time(self):
         current_time = datetime.now()
         hour = current_time.hour
