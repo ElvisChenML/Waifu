@@ -43,21 +43,19 @@ class TimeService:
 
     async def load_config(self, config_data):
         """
-        从配置数据加载时间服务配置
+        加载配置
+        :param config_data: 配置数据
         """
-        # 直接从传入的配置数据中获取时间服务配置
-        time_service_config = config_data.get("time_service", {})
-        self.enabled = time_service_config.get("enabled", True)
-        self.ntp_server = time_service_config.get("ntp_server", "ntp.aliyun.com")
-        self.timezone = time_service_config.get("timezone", "Asia/Shanghai")
-        self.include_date = time_service_config.get("include_date", True)
-        self.include_time = time_service_config.get("include_time", True)
-        self.include_timezone = time_service_config.get("include_timezone", False)
-        self.sync_interval = time_service_config.get("sync_interval", 3600)
-        
-        # 初始化时间同步
-        if self.enabled:
-            await self.sync_time()
+        if "time_service" in config_data:
+            time_service_config = config_data["time_service"]
+            self.enabled = time_service_config.get("enabled", False)
+            self.timezone = time_service_config.get("timezone", "Asia/Shanghai")
+            self.ntp_server = time_service_config.get("ntp_server", "ntp.aliyun.com")
+            self.sync_interval = time_service_config.get("sync_interval", 3600)
+            
+            # 如果启用了时间服务，立即同步一次时间
+            if self.enabled:
+                await self.sync_time()
 
     @handle_errors
     async def sync_time(self):
