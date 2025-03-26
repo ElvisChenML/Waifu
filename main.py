@@ -21,7 +21,6 @@ from plugins.Waifu.systems.narrator import Narrator
 from plugins.Waifu.systems.value_game import ValueGame
 from plugins.Waifu.organs.thoughts import Thoughts
 from plugins.Waifu.cells.painting import Painting
-from plugins.Waifu.cells.time_service import TimeService
 
 COMMANDS = {
     "列出命令": "列出目前支援所有命令及介绍，用法：[列出命令]。",
@@ -64,7 +63,6 @@ class WaifuCache:
         self.cards = Cards(ap)
         self.narrator = Narrator(ap, launcher_id)
         self.thoughts = Thoughts(ap)
-        self.time_service = TimeService(ap)
         self.conversation_analysis_flag = True
         self.thinking_mode_flag = True
         self.story_mode_flag = True
@@ -105,7 +103,7 @@ class WaifuRunner(runner.RequestRunner):
         return
 
 
-@register(name="Waifu", description="Cuter than real waifu!", version="1.9.9", author="ElvisChenML")
+@register(name="Waifu", description="Cuter than real waifu!", version="1.9.8", author="ElvisChenML")
 class Waifu(BasePlugin):
     # 修改 __init__ 方法，初始化表情包管理器
     def __init__(self, host: APIHost):
@@ -274,10 +272,6 @@ class Waifu(BasePlugin):
         cache.use_personal_prompts = config_mgr.data.get("use_personal_prompts", False)
         self._emoji_manager.use_superbed = config_mgr.data.get("use_superbed", True)  # 默认不使用聚合图床
         self._emoji_manager.superbed_token = config_mgr.data.get("superbed_token", "123456789")
-        # 加载时间服务配置
-        await cache.time_service.load_config(config_mgr.data)
-        # 同步NTP时间
-        await cache.time_service.sync_time()
         await cache.memory.load_config(character, launcher_id, launcher_type)
         await cache.value_game.load_config(character, launcher_id, launcher_type)
         await cache.cards.load_config(character, launcher_type)
@@ -585,9 +579,6 @@ class Waifu(BasePlugin):
         sender = ctx.event.query.message_event.sender.member_name
         sender_id = ctx.event.sender_id
         msg = await self._vision(ctx)  # 用眼睛看消息？
-        
-        # 同步NTP时间
-        await config.time_service.sync_time()
     
         await config.memory.save_memory(role=sender, content=msg)
         config.unreplied_count += 1
