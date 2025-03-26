@@ -63,6 +63,9 @@ class WaifuCache:
         self.cards = Cards(ap)
         self.narrator = Narrator(ap, launcher_id)
         self.thoughts = Thoughts(ap)
+        self.use_ntp_time = False  # 是否使用NTP时间
+        self.ntp_server = "ntp.aliyun.com"  # NTP服务器地址
+        self.timezone_offset = 8  # 时区偏移量，默认为东八区(+8)
         self.conversation_analysis_flag = True
         self.thinking_mode_flag = True
         self.story_mode_flag = True
@@ -272,6 +275,15 @@ class Waifu(BasePlugin):
         cache.use_personal_prompts = config_mgr.data.get("use_personal_prompts", False)
         self._emoji_manager.use_superbed = config_mgr.data.get("use_superbed", True)  # 默认不使用聚合图床
         self._emoji_manager.superbed_token = config_mgr.data.get("superbed_token", "123456789")
+        # 加载NTP时间相关配置
+        cache.use_ntp_time = config_mgr.data.get("use_ntp_time", False)
+        cache.ntp_server = config_mgr.data.get("ntp_server", "ntp.aliyun.com")
+        cache.timezone_offset = config_mgr.data.get("timezone_offset", 8)
+        
+        # 将NTP时间配置传递给Generator
+        self._generator.use_ntp_time = cache.use_ntp_time
+        self._generator.ntp_server = cache.ntp_server
+        self._generator.timezone_offset = cache.timezone_offset
         await cache.memory.load_config(character, launcher_id, launcher_type)
         await cache.value_game.load_config(character, launcher_id, launcher_type)
         await cache.cards.load_config(character, launcher_type)

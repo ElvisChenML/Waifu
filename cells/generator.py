@@ -288,6 +288,24 @@ class Generator:
         return "\n".join(message.readable_str() for message in messages)
 
     def get_chinese_current_time(self):
+        """
+        获取当前中文格式时间
+        如果启用了NTP时间同步，则从NTP服务器获取时间
+        否则使用本地系统时间
+        """
+        if hasattr(self, 'use_ntp_time') and self.use_ntp_time:
+            try:
+                from plugins.Waifu.cells.ntp_time import NTPClient
+                ntp_client = NTPClient(server=self.ntp_server)
+                formatted_time = ntp_client.get_formatted_time(timezone_offset=self.timezone_offset)
+                if formatted_time:
+                    return formatted_time
+                # 如果NTP获取失败，回退到系统时间
+                self.ap.logger.warning("NTP时间获取失败，使用系统时间")
+            except Exception as e:
+                self.ap.logger.error(f"NTP时间同步出错: {str(e)}")
+        
+        # 使用系统时间
         current_time = datetime.now()
         hour = current_time.hour
         period = "上午"

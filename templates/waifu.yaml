@@ -51,3 +51,9 @@ superbed_token: "123456789" # 聚合图床token
 # 绘画设置
 model: "wanx2.1-t2i-turbo" # 模型名称
 api_key: "your_api_key_here" # API密钥
+
+
+# 时间设置
+use_ntp_time: false # 是否使用NTP服务器获取时间，开启后将从NTP服务器获取准确时间
+ntp_server: "ntp.aliyun.com" # NTP服务器地址，默认使用阿里云NTP服务器
+timezone_offset: 8 # 时区偏移量（小时），默认为东八区(+8)
