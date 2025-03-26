@@ -281,17 +281,17 @@ class Waifu(BasePlugin):
         cache.timezone_offset = config_mgr.data.get("timezone_offset", 8)
         
         # 将NTP时间配置传递给Generator - 修复这里的问题
-        # 不要直接设置属性，而是通过方法传递
-        if not hasattr(self._generator, 'set_ntp_config'):
-            # 如果Generator没有set_ntp_config方法，我们需要添加这个方法
-            # 但在这里我们只是确保不会因为缺少这个方法而出错
-            self.ap.logger.warning("Generator类缺少set_ntp_config方法，无法设置NTP配置")
-        else:
+        if hasattr(self._generator, 'set_ntp_config'):
             self._generator.set_ntp_config(
                 use_ntp_time=cache.use_ntp_time,
                 ntp_server=cache.ntp_server,
                 timezone_offset=cache.timezone_offset
             )
+        else:
+            # 如果Generator没有set_ntp_config方法，直接设置属性
+            self._generator.use_ntp_time = cache.use_ntp_time
+            self._generator.ntp_server = cache.ntp_server
+            self._generator.timezone_offset = cache.timezone_offset
         await cache.memory.load_config(character, launcher_id, launcher_type)
         await cache.value_game.load_config(character, launcher_id, launcher_type)
         await cache.cards.load_config(character, launcher_type)

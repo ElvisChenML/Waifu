@@ -310,7 +310,7 @@ class Generator:
         如果启用了NTP时间同步，则从NTP服务器获取时间
         否则使用本地系统时间
         """
-        if self.use_ntp_time:
+        if hasattr(self, 'use_ntp_time') and self.use_ntp_time:
             try:
                 from plugins.Waifu.cells.ntp_time import NTPClient
                 ntp_client = NTPClient(server=self.ntp_server)
