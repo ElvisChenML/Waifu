@@ -3,6 +3,7 @@ import numpy as np
 import json
 import os
 import re
+import math
 from datetime import datetime, timedelta
 from pkg.core import app
 from collections import Counter
@@ -12,6 +13,12 @@ from pkg.plugin.context import APIHost
 from pkg.provider import entities as llm_entities
 from plugins.Waifu.cells.config import ConfigManager
 
+
+## 多级召回记忆系统
+# L0 短期记忆 完整对话
+# L1 会话记忆 高时间敏感性 弱主题关联
+# L2 长期记忆 周级衰减 主题覆盖阈值
+# L3 归档记忆 月度衰减 精准匹配
 
 class Memory:
 
@@ -51,6 +58,12 @@ class Memory:
         self._load_long_term_memory_from_file()
         self._load_short_term_memory_from_file()
         self._has_preset = True
+        self._memories_session = []
+        self._memories_session_capacity = 0
+        self._memory_weight_max = 1.0
+        self._memory_decay_rate = 0.95
+        self._memory_boost_rate = 0.3
+        self._memory_base_growth = 0.2
 
     async def load_config(self, character: str, launcher_id: str, launcher_type: str):
         waifu_config = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu", launcher_id)
@@ -61,6 +74,7 @@ class Memory:
         self._short_term_memory_size = waifu_config.data["short_term_memory_size"]
         self._memory_batch_size = waifu_config.data["memory_batch_size"]
         self._retrieve_top_n = waifu_config.data["retrieve_top_n"]
+        self._memories_session_capacity = int(self._retrieve_top_n)
         self._summary_max_tags = waifu_config.data["summary_max_tags"]
         self._summarization_mode = waifu_config.data.get("summarization_mode", False)
 
@@ -101,16 +115,17 @@ class Memory:
         top_n = self._summary_max_tags - len(i18n_list)
         tags = []
 
-        # 提取前top_n个高频词
+        # # 提取前top_n个高频词
         for word, freq in term_freq_counter.most_common(top_n):
             tags.append(word)
 
         # 加入i18n标签
         tags.extend(i18n_list)
 
+        # 污染太严重，导致召回准确率不高
         # 若为提取记忆，则将结构返回的related也加入tags
-        if len(conversations) <= 1:
-            tags.extend(related_list)
+        # if len(conversations) <= 1:
+        #     tags.extend(related_list)
 
         return memory, tags
 
@@ -125,6 +140,12 @@ class Memory:
 
         return await self._generator.return_string(user_prompt_summary)
 
+    def current_time_str(self) -> str:
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    def get_time_form_str(self, time_str: str) -> datetime:
+        return datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S")
+
     async def _tag_and_add_conversations(self):
         if self.short_term_memory:
             summary, tags = await self._tag_conversations(self.short_term_memory[: self._memory_batch_size], True)
@@ -132,6 +153,7 @@ class Memory:
             tags = list(set(tags))
             if len(self.short_term_memory) > self._memory_batch_size:
                 self.short_term_memory = self.short_term_memory[self._memory_batch_size :]
+            tags.append("DATETIME: " + self.current_time_str())
             self._add_long_term_memory(summary, tags)
             self._save_long_term_memory_to_file()
             self._save_short_term_memory_to_file()
@@ -153,7 +175,7 @@ class Memory:
     def _extract_time_and_add_tags(self, message: typing.Union[str, object]) -> typing.List[str]:
         """
             提取 message_content 中的时间戳，并添加相应的时间标签。
-            
+
             已匹配过的关键词不能再次匹配，字数多的关键词优先。
             匹配后从句子中删除已匹配的文字。
             """
@@ -168,7 +190,7 @@ class Memory:
         time_tags = []
 
         # 处理日期关键词
-        relative_days = {"大后天": 3, "后天": 2, "明天": 1, "今天": 0, 
+        relative_days = {"大后天": 3, "后天": 2, "明天": 1, "今天": 0,
                             "昨天": -1, "前天": -2, "大前天": -3}
         for day_str, offset in sorted(relative_days.items(), key=lambda x: -len(x[0])):
             if day_str in ct:
@@ -248,6 +270,7 @@ class Memory:
             with open(self._conversations_file, "a", encoding="utf-8") as file:
                 for conv in conversations:
                     file.write(conv.readable_str() + "\n")
+                file.flush()
         except Exception as e:
             self.ap.logger.error(f"Error saving conversations to file '{self._conversations_file}': {e}")
 
@@ -259,7 +282,33 @@ class Memory:
             if tag not in self._tags_index:
                 self._tags_index[tag] = len(self._tags_index)
 
+    def _extract_time_tag(self, tags: typing.List[str]) -> tuple[int, str]:
+        for i in range(len(tags)):
+            if tags[i].startswith("DATETIME: "):
+                time_tags = tags[i].replace("DATETIME: ", "")
+                return (i, time_tags)
+        return (-1,"")
+
+    def _extract_priority_tags(self, tags: typing.List[str]) -> tuple[int, str]:
+        for i in range(len(tags)):
+            if tags[i].startswith("PRIORITY: "):
+                priority_tags = tags[i].replace("PRIORITY: ", "")
+                return (i, priority_tags)
+        return (-1,"")
+
+    def _get_real_tags(self, tags: typing.List[str]) -> typing.List[str]:
+        tags = tags.copy()
+        (time_index,_) = self._extract_time_tag(tags)
+        if time_index != -1:
+            tags.pop(time_index)
+        (priority_index,_) = self._extract_priority_tags(tags)
+        if priority_index != -1:
+            tags.pop(priority_index)
+        return tags
+
     def _get_tag_vector(self, tags: typing.List[str]) -> np.ndarray:
+        tags = self._get_real_tags(tags)
+
         vector = np.zeros(len(self._tags_index))
         for tag in tags:
             if tag in self._tags_index:
@@ -272,18 +321,263 @@ class Memory:
         norm_b = np.linalg.norm(vector_b)
         return 0.0 if norm_a == 0 or norm_b == 0 else dot_product / (norm_a * norm_b)
 
-    def _retrieve_related_memories(self, input_tags: typing.List[str]) -> typing.List[str]:
+    def _retrieve_related_l1_memories(self, input_tags: typing.List[str]) -> typing.List[tuple[float, typing.List[str]]]:
+        self.ap.logger.info(f"开始L1记忆召回 Tags: {', '.join(input_tags)}")
+        # 召回L1记忆
+        current_time = datetime.now()
         input_vector = self._get_tag_vector(input_tags)
-        similarities = []
+        l1_memories = []
+
+        DECAY_RATE_PER_MIN = 0.00015 # 每分钟衰减率（7天后权重≈0.3）
+        SIMILARITY_THRESHOLD = 0.1  # 综合权重最低准入值
 
         for summary, tags in self._long_term_memory:
+            # 提取元标签
+            (_,time_tags) = self._extract_time_tag(tags)
+            summary_time = datetime.fromtimestamp(1745069038)
+            if time_tags != "":
+                summary_time = self.get_time_form_str(time_tags)
+            else:
+                time_tags = summary_time.strftime("%Y-%m-%d %H:%M:%S")
+
+            current_time = datetime.now()
             summary_vector = self._get_tag_vector(tags)
             similarity = self._cosine_similarity(input_vector, summary_vector)
-            similarities.append((similarity, summary))
-            # self.ap.logger.info(f"Similarity: {similarity}, Tags: {tags}")
+            # 计算时间衰减权重
+            delta_time = current_time - summary_time
+            delta_min = delta_time.total_seconds() / 60
+            time_weight = math.exp(-DECAY_RATE_PER_MIN * delta_min)
+             # 综合权重 = 语义相似度 * 时间衰减
+            weight = similarity * time_weight
+            if weight > SIMILARITY_THRESHOLD:
+                l1_memories.append((weight, summary))
 
-        similarities.sort(reverse=True, key=lambda x: x[0])
-        return [summary for _, summary in similarities[: self._retrieve_top_n]]
+            self.ap.logger.info(f"L1 Memory: Weight:{weight}, Time:{time_tags}, Similarity: {similarity}, Summary: {summary}, Tags: {tags}")
+
+        if len(l1_memories) == 0 and len(self._long_term_memory) > 0:
+            self.ap.logger.info("L1记忆召回失败，返回最后一条记忆")
+            latest = self._long_term_memory[:-1][0]
+            return [(SIMILARITY_THRESHOLD,latest[0])]
+        l1_memories.sort(reverse=True, key=lambda x: x[0])
+        return l1_memories[: self._retrieve_top_n]
+
+    def _retrieve_related_l2_memories(self, input_tags: typing.List[str]) -> typing.List[tuple[float, str]]:
+        self.ap.logger.info(f"开始L2记忆召回 Tags: {', '.join(input_tags)}")
+        current_time = datetime.now()
+        input_vector = self._get_tag_vector(input_tags)
+        l2_memories = []
+
+        TIME_DECAY_RATE = 0.0012  # 每小时衰减率（30天后权重≈0.4）
+        SIMILARITY_THRESHOLD = 0.4
+
+        for summary, tags in self._long_term_memory:
+            # 提取元标签
+            (_,time_tags) = self._extract_time_tag(tags)
+            summary_time = datetime.fromtimestamp(1745069038)
+            if time_tags != "":
+                summary_time = self.get_time_form_str(time_tags)
+            else:
+                time_tags = summary_time.strftime("%Y-%m-%d %H:%M:%S")
+            current_time = datetime.now()
+
+            # 计算相似度
+            summary_vector = self._get_tag_vector(tags)
+            similarity = self._cosine_similarity(input_vector, summary_vector)
+
+            # 计算时间衰减（按天计算）
+            delta_hours = (current_time - summary_time).total_seconds() / 3600
+            time_weight = math.exp(-TIME_DECAY_RATE * delta_hours)
+
+            # 计算主题覆盖度
+            real_tags = self._get_real_tags(tags)
+            topic_overlap = len(set(input_tags) & set(real_tags))
+            topic_coverage = topic_overlap / len(input_tags) if input_tags else 0
+
+            # 综合权重公式
+            weight = similarity * time_weight * (0.6 + 0.4 * topic_coverage)
+
+            # 准入检查
+            if weight >= SIMILARITY_THRESHOLD:
+                l2_memories.append((weight, summary))
+
+            self.ap.logger.info(f"L2 Memory: Weight:{weight}, Time:{time_tags}, Similarity:{similarity}, Top Coverage {topic_coverage}:, Summary: {summary}, Tags: {tags}")
+
+        l2_memories.sort(reverse=True, key=lambda x: x[0])
+        return l2_memories[: self._retrieve_top_n]
+
+    def _retrieve_related_l3_memories(self, input_tags: typing.List[str]) -> typing.List[tuple[float, str]]:
+        self.ap.logger.info(f"开始L3记忆召回 Tags: {', '.join(input_tags)}")
+        current_time = datetime.now()
+        input_vector = self._get_tag_vector(input_tags)
+        l3_memories = []
+        input_set = set(input_tags)
+
+        # 参数配置
+        JACCARD_WEIGHT = 0.4       # 标签匹配权重
+        COSINE_WEIGHT = 0.6        # 语义相似权重
+        TIME_DECAY = 0.00023  # e^(-0.00023 * 180) ≈ 0.93 → 180天保留93%
+        MINI_WEIGHT = 0.25         # 综合相似度阈值
+
+        for summary, tags in self._long_term_memory:
+            # 提取元标签
+            (_,time_tags) = self._extract_time_tag(tags)
+            summary_time = datetime.fromtimestamp(1745069038)
+            if time_tags != "":
+                summary_time = self.get_time_form_str(time_tags)
+            else:
+                time_tags = summary_time.strftime("%Y-%m-%d %H:%M:%S")
+            current_time = datetime.now()
+
+            # 计算时间衰减
+            delta_days = (current_time - summary_time).days
+            time_weight = math.exp(-TIME_DECAY * delta_days)
+
+            # 计算主题覆盖度
+            mem_tags = set(tags)
+            intersection = input_set & mem_tags
+            union = input_set | mem_tags
+
+            # 计算余弦相似度
+            summary_vector = self._get_tag_vector(tags)
+            cos_similarity = self._cosine_similarity(input_vector, summary_vector)
+
+            # 计算Jaccard相似度
+            jaccard = len(intersection) / len(union) if union else 0
+
+            # 混合相似度计算
+            weight = (JACCARD_WEIGHT * jaccard +
+                     COSINE_WEIGHT * cos_similarity) * time_weight
+
+            # 严格准入规则
+            if weight >= MINI_WEIGHT:
+                l3_memories.append((weight, summary))
+
+            self.ap.logger.info(f"L3 Memory: Weight:{weight}, Time:{time_tags}, Jaccard:{jaccard}, Similarity:{cos_similarity}, Summary: {summary}, Tags: {tags}")
+
+        l3_memories.sort(reverse=True, key=lambda x: x[0])
+        return l3_memories[: self._retrieve_top_n]
+
+    def _update_memories_session(self, new_memories: list):
+        """更新记忆池"""
+        # 步骤1：衰减旧记忆权重
+        self._memories_session = [
+            (m, s * 0.97)  # 全局微量衰减
+            for m, s in self._memories_session
+        ]
+
+        # 步骤2：计算动态增量
+        updated = {}
+        for mem, old_score in self._memories_session:
+            # 计算剩余增长空间
+            headroom = self._memory_weight_max - old_score
+            # 动态增长率 = 基础因子 × 剩余空间的平方占比
+            growth_rate = self._memory_base_growth * (headroom ** 2 / self._memory_weight_max)
+            new_score = old_score + growth_rate
+            updated[mem] = min(new_score, self._memory_weight_max)
+
+        # 步骤3：合并新记忆（带初始加成）
+        current_max = max(updated.values()) if updated else 0
+        for mem in new_memories:
+            # 初始值为当前最大值的60% + 新记忆加成
+            initial = min(max(current_max * 0.6 + self._memory_boost_rate, 0.5), 0.9)
+            updated[mem] = max(updated.get(mem, 0), initial)
+
+        # 步骤4：排序保留TopN
+        sorted_mem = sorted(updated.items(), key=lambda x: -x[1])
+        self._memories_session = sorted_mem[:self._memories_session_capacity]
+
+        # 调试日志
+        self.ap.logger.info(f"记忆池更新完成，当前内容：{self._memories_session}")
+
+    def _get_memories_session(self) -> typing.List[str]:
+        """获取当前记忆池"""
+        return [mem for mem, _ in self._memories_session]
+
+    def get_memories_session(self) -> str:
+        """获取当前记忆池"""
+        return "\n\n".join(self._get_memories_session())
+
+    def _retrieve_related_memories(self, input_tags: typing.List[str]) -> typing.List[str]:
+        self.ap.logger.info(f"开始多级记忆召回 Tags: {', '.join(input_tags)}")
+
+        # 获取各层记忆结果（带权重）
+        l3_results = self._retrieve_related_l3_memories(input_tags)  # 格式: [(weight, summary)]
+        l2_results = self._retrieve_related_l2_memories(input_tags)
+        l1_results = self._retrieve_related_l1_memories(input_tags)
+
+        MEMORY_WEIGHT_CONFIG = {
+            "level_weights": {
+                "L3": 1.0,
+                "L2": 1.0,
+                "L1": 1.0
+            },
+            "freshness": {
+                "boost": 1.5,  # 近期记忆加成系数
+                "hours": 1     # 视为近期记忆的时间窗口
+            }
+        }
+
+        # 构建带权记忆池
+        weighted_memories = []
+        current_time = datetime.now()
+
+        # 处理L3记忆
+        for weight, summary in l3_results:
+            _, tags = next((s, t) for s, t in self._long_term_memory if s == summary)
+            time_str = self._extract_time_tag(tags)[1]
+            if time_str == "":
+                time_str = datetime.fromtimestamp(1745069038).strftime("%Y-%m-%d %H:%M:%S")
+            mem_time = self.get_time_form_str(time_str) if time_str else current_time
+            delta_hours = (current_time - mem_time).total_seconds() / 3600
+            time_boost = MEMORY_WEIGHT_CONFIG["freshness"]["boost"] if delta_hours < MEMORY_WEIGHT_CONFIG["freshness"]["hours"] else 1.0
+            final_weight = weight * MEMORY_WEIGHT_CONFIG["level_weights"]["L3"] * time_boost
+            weighted_memories.append((final_weight, summary))
+            self.ap.logger.info(f"L3记忆权重计算 | 原始:{weight:.2f} 时间加成:{time_boost} 最终:{final_weight:.2f}")
+
+        # 处理L2记忆
+        for weight, summary in l2_results:
+            _, tags = next((s, t) for s, t in self._long_term_memory if s == summary)
+            time_str = self._extract_time_tag(tags)[1]
+            if time_str == "":
+                time_str = datetime.fromtimestamp(1745069038).strftime("%Y-%m-%d %H:%M:%S")
+            mem_time = self.get_time_form_str(time_str) if time_str else current_time
+            delta_hours = (current_time - mem_time).total_seconds() / 3600
+            time_boost = MEMORY_WEIGHT_CONFIG["freshness"]["boost"] if delta_hours < MEMORY_WEIGHT_CONFIG["freshness"]["hours"] else 1.0
+            final_weight = weight * MEMORY_WEIGHT_CONFIG["level_weights"]["L2"] * time_boost
+            weighted_memories.append((final_weight, summary))
+            self.ap.logger.info(f"L2记忆权重计算 | 原始:{weight:.2f} 时间加成:{time_boost} 最终:{final_weight:.2f}")
+
+        # 处理L1记忆
+        for weight, summary in l1_results:
+            _, tags = next((s, t) for s, t in self._long_term_memory if s == summary)
+            time_str = self._extract_time_tag(tags)[1]
+            if time_str == "":
+                time_str = datetime.fromtimestamp(1745069038).strftime("%Y-%m-%d %H:%M:%S")
+            mem_time = self.get_time_form_str(time_str) if time_str else current_time
+            delta_hours = (current_time - mem_time).total_seconds() / 3600
+            time_boost = MEMORY_WEIGHT_CONFIG["freshness"]["boost"] if delta_hours < MEMORY_WEIGHT_CONFIG["freshness"]["hours"] else 1.0
+            final_weight = weight * MEMORY_WEIGHT_CONFIG["level_weights"]["L1"] * time_boost
+            weighted_memories.append((final_weight, summary))
+            self.ap.logger.info(f"L1记忆权重计算 | 原始:{weight:.2f} 时间加成:{time_boost} 最终:{final_weight:.2f}")
+
+        # 记忆去重（保留最高权重）
+        memory_dict = {}
+        for weight, mem in weighted_memories:
+            if mem not in memory_dict or weight > memory_dict[mem]:
+                memory_dict[mem] = weight
+
+        # 按最终权重排序
+        sorted_memories = sorted(memory_dict.items(), key=lambda x: x[1], reverse=True)
+
+        # 截取前N个结果
+        result = [mem for mem, _ in sorted_memories[:self._retrieve_top_n]]
+        for mem in result:
+            self.ap.logger.info(f"召回记忆: {mem}")
+        self.ap.logger.info(f"加权合并完成，共召回{len(result)}条记忆")
+
+        # 更新记忆池
+        self._update_memories_session(result)
+        return self._get_memories_session()
 
     async def save_memory(self, role: str, content: str):
         time = self._generator.get_chinese_current_time()
@@ -313,7 +607,8 @@ class Memory:
         tags = list(set(tags))
         formatted_tags = ", ".join(tags)
         self.ap.logger.info(f"记忆加载中 Tags: {formatted_tags}")
-        return self._retrieve_related_memories(tags)
+        memories = self._retrieve_related_memories(tags)
+        return memories
 
     def get_all_memories(self) -> str:
         memories_str = [conv.readable_str() for conv in self.short_term_memory]
@@ -343,16 +638,22 @@ class Memory:
         self.ap.logger.info("Cleared short-term and long-term memories")
 
     def _save_long_term_memory_to_file(self):
+        tmpFile = "{}.tmp".format(self._long_term_memory_file)
         try:
-            with open(self._long_term_memory_file, "w", encoding="utf-8") as file:
+            with open(tmpFile, "w", encoding="utf-8") as file:
                 json.dump({"long_term": [{"summary": summary, "tags": tags} for summary, tags in self._long_term_memory], "tags_index": self._tags_index}, file, ensure_ascii=False, indent=4)
+                file.flush()
+                os.replace(tmpFile, self._long_term_memory_file)
         except Exception as e:
             self.ap.logger.error(f"Error saving memory to file '{self._long_term_memory_file}': {e}")
 
     def _save_short_term_memory_to_file(self):
+        tmpFile = "{}.tmp".format(self._short_term_memory_file)
         try:
-            with open(self._short_term_memory_file, "w", encoding="utf-8") as file:
+            with open(tmpFile, "w", encoding="utf-8") as file:
                 json.dump([{"role": conv.role, "content": conv.content} for conv in self.short_term_memory], file, ensure_ascii=False, indent=4)
+                file.flush()
+                os.replace(tmpFile, self._short_term_memory_file)
         except Exception as e:
             self.ap.logger.error(f"Error saving memory to file '{self._short_term_memory_file}': {e}")
 
