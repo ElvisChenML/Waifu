@@ -23,6 +23,7 @@ from plugins.Waifu.organs.thoughts import Thoughts
 COMMANDS = {
     "列出命令": "列出目前支援所有命令及介绍，用法：[列出命令]。",
     "全部记忆": "显示目前所有长短期记忆，用法：[全部记忆]。",
+    "会话记忆":"显示当前会话使用的记忆，用法：[会话记忆]。",
     "删除记忆": "删除所有长短期记忆，用法：[删除记忆]。",
     "修改数值": "修改Value Game的数字，用法：[修改数值][数值]。",
     "态度": "显示当前Value Game所对应的“态度Manner”，用法：[态度]。",
@@ -106,7 +107,10 @@ class Waifu(BasePlugin):
         await config_mgr.load_config(completion=True)
 
     async def destroy(self):
+        self.ap.logger.warning("Waifu插件正在退出....")
         await self._set_runner(self.ap.provider_cfg.data['runner'])
+
+
 
     # @handler(NormalMessageResponded)
     # async def normal_message_responded(self, ctx: EventContext):
@@ -117,7 +121,7 @@ class Waifu(BasePlugin):
         访问控制检查，根据配置判断是否允许继续处理
         :param ctx: 包含事件上下文信息的 EventContext 对象
         :return: True if allowed to continue, False otherwise
-        """      
+        """
         bot_account_id = ctx.event.query.adapter.bot_account_id
         text_message = str(ctx.event.query.message_chain)
         launcher_id = ctx.event.launcher_id
@@ -157,7 +161,7 @@ class Waifu(BasePlugin):
         cmd_prefix = self.ap.command_cfg.data.get("command-prefix", [])
         if any(text_message.startswith(prefix) for prefix in cmd_prefix):
             return False
-        
+
         # 排除特定前缀
         if waifu_data and any(text_message.startswith(prefix) for prefix in waifu_data.ignore_prefix):
             return False
@@ -286,6 +290,8 @@ class Waifu(BasePlugin):
             response = await self._generator.return_string(user_prompt, [], system_prompt)
         elif msg == "全部记忆":
             response = config.memory.get_all_memories()
+        elif msg == "会话记忆":
+            response = config.memory.get_memories_session()
         elif msg == "删除记忆":
             response = self._stop_timer(launcher_id)
             config.memory.delete_local_files()
