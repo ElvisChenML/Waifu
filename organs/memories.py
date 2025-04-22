@@ -60,6 +60,7 @@ class Memory:
         self._has_preset = True
         self._memories_session = []
         self._memories_session_capacity = 0
+        self._memories_recall_once = 5
         self._memory_weight_max = 1.0
         self._memory_decay_rate = 0.95
         self._memory_boost_rate = 0.3
@@ -75,7 +76,8 @@ class Memory:
         self._short_term_memory_size = waifu_config.data["short_term_memory_size"]
         self._memory_batch_size = waifu_config.data["memory_batch_size"]
         self._retrieve_top_n = waifu_config.data["retrieve_top_n"]
-        self._memories_session_capacity = int(self._retrieve_top_n)
+        self._memories_recall_once = waifu_config.data["recall_once"]
+        self._memories_session_capacity = waifu_config.data["session_memories_size"]
         self._summary_max_tags = waifu_config.data["summary_max_tags"]
         self._summarization_mode = waifu_config.data.get("summarization_mode", False)
 
@@ -353,14 +355,9 @@ class Memory:
             if weight > SIMILARITY_THRESHOLD:
                 l1_memories.append((weight, summary))
 
-            self.ap.logger.info(f"L1 Memory: Weight:{weight}, Time:{time_tags}, Similarity: {similarity}, Summary: {summary}, Tags: {tags}")
-
-        if len(l1_memories) == 0 and len(self._long_term_memory) > 0:
-            self.ap.logger.info("L1记忆召回失败，返回最后一条记忆")
-            latest = self.get_latest_memory()
-            return [(SIMILARITY_THRESHOLD,latest[0])]
+            self.ap.logger.debug(f"L1 Memory: Weight:{weight}, Time:{time_tags}, Similarity: {similarity}, Summary: {summary}, Tags: {tags}")
         l1_memories.sort(reverse=True, key=lambda x: x[0])
-        return l1_memories[: self._retrieve_top_n]
+        return l1_memories[: self._memories_recall_once]
 
     def _retrieve_related_l2_memories(self, input_tags: typing.List[str]) -> typing.List[tuple[float, str]]:
         self.ap.logger.info(f"开始L2记忆召回 Tags: {', '.join(input_tags)}")
@@ -401,10 +398,10 @@ class Memory:
             if weight >= SIMILARITY_THRESHOLD:
                 l2_memories.append((weight, summary))
 
-            self.ap.logger.info(f"L2 Memory: Weight:{weight}, Time:{time_tags}, Similarity:{similarity}, Top Coverage {topic_coverage}:, Summary: {summary}, Tags: {tags}")
+            self.ap.logger.debug(f"L2 Memory: Weight:{weight}, Time:{time_tags}, Similarity:{similarity}, Top Coverage {topic_coverage}:, Summary: {summary}, Tags: {tags}")
 
         l2_memories.sort(reverse=True, key=lambda x: x[0])
-        return l2_memories[: self._retrieve_top_n]
+        return l2_memories[: self._memories_recall_once]
 
     def _retrieve_related_l3_memories(self, input_tags: typing.List[str]) -> typing.List[tuple[float, str]]:
         self.ap.logger.info(f"开始L3记忆召回 Tags: {', '.join(input_tags)}")
@@ -453,10 +450,10 @@ class Memory:
             if weight >= MINI_WEIGHT:
                 l3_memories.append((weight, summary))
 
-            self.ap.logger.info(f"L3 Memory: Weight:{weight}, Time:{time_tags}, Jaccard:{jaccard}, Similarity:{cos_similarity}, Summary: {summary}, Tags: {tags}")
+            self.ap.logger.debug(f"L3 Memory: Weight:{weight}, Time:{time_tags}, Jaccard:{jaccard}, Similarity:{cos_similarity}, Summary: {summary}, Tags: {tags}")
 
         l3_memories.sort(reverse=True, key=lambda x: x[0])
-        return l3_memories[: self._retrieve_top_n]
+        return l3_memories[: self._memories_recall_once]
 
     def _update_memories_session(self, new_memories: list):
         """更新记忆池"""
@@ -531,60 +528,41 @@ class Memory:
         l2_results = self._retrieve_related_l2_memories(input_tags)
         l1_results = self._retrieve_related_l1_memories(input_tags)
 
-        memory_weight_preset = {
-            "level_weights": {
-                "L3": 1.0,
-                "L2": 1.0,
-                "L1": 1.0
-            },
-            "freshness": {
-                "boost": 1.5,  # 近期记忆加成系数
-                "hours": 1     # 视为近期记忆的时间窗口
-            }
+        level_factors = {
+            "L1": {"base": 1.2, "decay": 0.8},
+            "L2": {"base": 1.0, "decay": 0.9},
+            "L3": {"base": 1.0, "decay": 1.0}
         }
 
         # 构建带权记忆池
         weighted_memories = []
-        current_time = datetime.now()
 
         # 处理L3记忆
+        factor = level_factors["L3"]["base"]
+        decay = level_factors["L3"]["decay"]
         for weight, summary in l3_results:
-            _, tags = next((s, t) for s, t in self._long_term_memory if s == summary)
-            time_str = self._extract_time_tag(tags)[1]
-            if time_str == "":
-                time_str = datetime.fromtimestamp(self._backoff_timestamp).strftime("%Y-%m-%d %H:%M:%S")
-            mem_time = self.get_time_form_str(time_str) if time_str else current_time
-            delta_hours = (current_time - mem_time).total_seconds() / 3600
-            time_boost = memory_weight_preset["freshness"]["boost"] if delta_hours < memory_weight_preset["freshness"]["hours"] else 1.0
-            final_weight = weight * memory_weight_preset["level_weights"]["L3"] * time_boost
-            weighted_memories.append((final_weight, summary))
-            self.ap.logger.info(f"L3记忆权重计算 | 原始:{weight:.2f} 时间加成:{time_boost} 最终:{final_weight:.2f}")
+            final_weight = weight * factor
+            factor *= decay
+            weighted_memories.append((final_weight , summary))
+            self.ap.logger.info(f"L3记忆权重计算 | 原始:{weight:.2f}  最终:{final_weight:.2f}")
 
         # 处理L2记忆
+        factor = level_factors["L2"]["base"]
+        decay = level_factors["L2"]["decay"]
         for weight, summary in l2_results:
-            _, tags = next((s, t) for s, t in self._long_term_memory if s == summary)
-            time_str = self._extract_time_tag(tags)[1]
-            if time_str == "":
-                time_str = datetime.fromtimestamp(self._backoff_timestamp).strftime("%Y-%m-%d %H:%M:%S")
-            mem_time = self.get_time_form_str(time_str) if time_str else current_time
-            delta_hours = (current_time - mem_time).total_seconds() / 3600
-            time_boost = memory_weight_preset["freshness"]["boost"] if delta_hours < memory_weight_preset["freshness"]["hours"] else 1.0
-            final_weight = weight * memory_weight_preset["level_weights"]["L2"] * time_boost
+            final_weight = weight * factor
+            factor *= decay
             weighted_memories.append((final_weight, summary))
-            self.ap.logger.info(f"L2记忆权重计算 | 原始:{weight:.2f} 时间加成:{time_boost} 最终:{final_weight:.2f}")
+            self.ap.logger.info(f"L2记忆权重计算 | 原始:{weight:.2f} 最终:{final_weight:.2f}")
 
         # 处理L1记忆
+        factor = level_factors["L1"]["base"]
+        decay = level_factors["L1"]["decay"]
         for weight, summary in l1_results:
-            _, tags = next((s, t) for s, t in self._long_term_memory if s == summary)
-            time_str = self._extract_time_tag(tags)[1]
-            if time_str == "":
-                time_str = datetime.fromtimestamp(self._backoff_timestamp).strftime("%Y-%m-%d %H:%M:%S")
-            mem_time = self.get_time_form_str(time_str) if time_str else current_time
-            delta_hours = (current_time - mem_time).total_seconds() / 3600
-            time_boost = memory_weight_preset["freshness"]["boost"] if delta_hours < memory_weight_preset["freshness"]["hours"] else 1.0
-            final_weight = weight * memory_weight_preset["level_weights"]["L1"] * time_boost
+            final_weight = weight * factor
+            factor *= decay
             weighted_memories.append((final_weight, summary))
-            self.ap.logger.info(f"L1记忆权重计算 | 原始:{weight:.2f} 时间加成:{time_boost} 最终:{final_weight:.2f}")
+            self.ap.logger.info(f"L1记忆权重计算 | 原始:{weight:.2f} 最终:{final_weight:.2f}")
 
         # 记忆去重（保留最高权重）
         memory_dict = {}
@@ -594,16 +572,18 @@ class Memory:
 
         # 按最终权重排序
         sorted_memories = sorted(memory_dict.items(), key=lambda x: x[1], reverse=True)
+        self.ap.logger.info(f"加权合并完成，共召回{len(sorted_memories)}条记忆")
 
         # 截取前N个结果
-        result = [mem for mem, _ in sorted_memories[:self._retrieve_top_n]]
+        result = [mem for mem, _ in sorted_memories[:self._memories_recall_once]]
         for mem in result:
             self.ap.logger.info(f"召回记忆: {mem}")
-        self.ap.logger.info(f"加权合并完成，共召回{len(result)}条记忆")
+        self.ap.logger.info(f"召回并选择了{len(result)}条记忆")
 
         # 更新记忆池
         self._update_memories_session(result)
-        return self._get_memories_session()
+        memories = self._get_memories_session()
+        return memories[: self._retrieve_top_n]
 
     async def save_memory(self, role: str, content: str):
         time = self._generator.get_chinese_current_time()

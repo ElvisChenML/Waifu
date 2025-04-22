@@ -18,6 +18,8 @@ max_thinking_words: 30 # 最大思考字数，此配置不是硬性限制，该�
 short_term_memory_size: 40 # 短期记忆，完整的对话记录长度。
 memory_batch_size: 20 # 长期记忆，短期记忆达到上限后，将memory_batch_size条发言转换成长期记忆。
 retrieve_top_n: 3 # 长期记忆，每次提取retrieve_top_n条相关的长期记忆。
+recall_once: 3 # 每次召回到记忆池中的长期记忆
+session_memories_size: 5 #记忆池容量
 summary_max_tags: 50 # 长期记忆，每段长期记忆的最大标签数量（高频词、类型名称）。
 
 # 群聊设置
