@@ -64,6 +64,7 @@ class Memory:
         self._memory_decay_rate = 0.95
         self._memory_boost_rate = 0.3
         self._memory_base_growth = 0.2
+        self._backoff_timestamp = 1745069038
 
     async def load_config(self, character: str, launcher_id: str, launcher_type: str):
         waifu_config = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu", launcher_id)
@@ -334,7 +335,7 @@ class Memory:
         for summary, tags in self._long_term_memory:
             # 提取元标签
             (_,time_tags) = self._extract_time_tag(tags)
-            summary_time = datetime.fromtimestamp(1745069038)
+            summary_time = datetime.fromtimestamp(self._backoff_timestamp)
             if time_tags != "":
                 summary_time = self.get_time_form_str(time_tags)
             else:
@@ -356,7 +357,7 @@ class Memory:
 
         if len(l1_memories) == 0 and len(self._long_term_memory) > 0:
             self.ap.logger.info("L1记忆召回失败，返回最后一条记忆")
-            latest = self._long_term_memory[:-1][0]
+            latest = self.get_latest_memory()
             return [(SIMILARITY_THRESHOLD,latest[0])]
         l1_memories.sort(reverse=True, key=lambda x: x[0])
         return l1_memories[: self._retrieve_top_n]
@@ -373,7 +374,7 @@ class Memory:
         for summary, tags in self._long_term_memory:
             # 提取元标签
             (_,time_tags) = self._extract_time_tag(tags)
-            summary_time = datetime.fromtimestamp(1745069038)
+            summary_time = datetime.fromtimestamp(self._backoff_timestamp)
             if time_tags != "":
                 summary_time = self.get_time_form_str(time_tags)
             else:
@@ -421,7 +422,7 @@ class Memory:
         for summary, tags in self._long_term_memory:
             # 提取元标签
             (_,time_tags) = self._extract_time_tag(tags)
-            summary_time = datetime.fromtimestamp(1745069038)
+            summary_time = datetime.fromtimestamp(self._backoff_timestamp)
             if time_tags != "":
                 summary_time = self.get_time_form_str(time_tags)
             else:
@@ -484,18 +485,43 @@ class Memory:
 
         # 步骤4：排序保留TopN
         sorted_mem = sorted(updated.items(), key=lambda x: -x[1])
-        self._memories_session = sorted_mem[:self._memories_session_capacity]
+        sorted_mem = sorted_mem[:self._memories_session_capacity]
+        self._memories_session = sorted_mem.copy()
+
+        # 步骤5: 加入最新记忆
+        latest = self.get_latest_memory()
+        if latest not in self._memories_session:
+            smallest = self._memories_session[-1]
+            smallest_weight = min(max(current_max * 0.6 + self._memory_boost_rate, 0.5), smallest[1])
+            self._memories_session[-1] = (latest, smallest_weight)
 
         # 调试日志
         self.ap.logger.info(f"记忆池更新完成，当前内容：{self._memories_session}")
 
+    def get_latest_memory(self) -> str:
+        """获取最新记忆"""
+        if len(self._long_term_memory) > 0:
+            latest = self._long_term_memory[-1][0]
+            return latest
+        return ""
+
     def _get_memories_session(self) -> typing.List[str]:
         """获取当前记忆池"""
-        return [mem for mem, _ in self._memories_session]
+        memories = [mem for mem, _ in self._memories_session]
+        if len(self._long_term_memory) > 0:
+            latest = self.get_latest_memory()
+            for i in range(len(memories)):
+                if memories[i] == latest:
+                    memories[i] = f"最近的记忆： {latest}"
+                    break
+        return memories
 
     def get_memories_session(self) -> str:
         """获取当前记忆池"""
-        return "\n\n".join(self._get_memories_session())
+        memories = []
+        for mem, score in self._memories_session:
+            memories.append(f"记忆：{mem} 权重：{score:.2f}")
+        return "\n\n".join(memories)
 
     def _retrieve_related_memories(self, input_tags: typing.List[str]) -> typing.List[str]:
         self.ap.logger.info(f"开始多级记忆召回 Tags: {', '.join(input_tags)}")
@@ -505,7 +531,7 @@ class Memory:
         l2_results = self._retrieve_related_l2_memories(input_tags)
         l1_results = self._retrieve_related_l1_memories(input_tags)
 
-        MEMORY_WEIGHT_CONFIG = {
+        memory_weight_preset = {
             "level_weights": {
                 "L3": 1.0,
                 "L2": 1.0,
@@ -526,11 +552,11 @@ class Memory:
             _, tags = next((s, t) for s, t in self._long_term_memory if s == summary)
             time_str = self._extract_time_tag(tags)[1]
             if time_str == "":
-                time_str = datetime.fromtimestamp(1745069038).strftime("%Y-%m-%d %H:%M:%S")
+                time_str = datetime.fromtimestamp(self._backoff_timestamp).strftime("%Y-%m-%d %H:%M:%S")
             mem_time = self.get_time_form_str(time_str) if time_str else current_time
             delta_hours = (current_time - mem_time).total_seconds() / 3600
-            time_boost = MEMORY_WEIGHT_CONFIG["freshness"]["boost"] if delta_hours < MEMORY_WEIGHT_CONFIG["freshness"]["hours"] else 1.0
-            final_weight = weight * MEMORY_WEIGHT_CONFIG["level_weights"]["L3"] * time_boost
+            time_boost = memory_weight_preset["freshness"]["boost"] if delta_hours < memory_weight_preset["freshness"]["hours"] else 1.0
+            final_weight = weight * memory_weight_preset["level_weights"]["L3"] * time_boost
             weighted_memories.append((final_weight, summary))
             self.ap.logger.info(f"L3记忆权重计算 | 原始:{weight:.2f} 时间加成:{time_boost} 最终:{final_weight:.2f}")
 
@@ -539,11 +565,11 @@ class Memory:
             _, tags = next((s, t) for s, t in self._long_term_memory if s == summary)
             time_str = self._extract_time_tag(tags)[1]
             if time_str == "":
-                time_str = datetime.fromtimestamp(1745069038).strftime("%Y-%m-%d %H:%M:%S")
+                time_str = datetime.fromtimestamp(self._backoff_timestamp).strftime("%Y-%m-%d %H:%M:%S")
             mem_time = self.get_time_form_str(time_str) if time_str else current_time
             delta_hours = (current_time - mem_time).total_seconds() / 3600
-            time_boost = MEMORY_WEIGHT_CONFIG["freshness"]["boost"] if delta_hours < MEMORY_WEIGHT_CONFIG["freshness"]["hours"] else 1.0
-            final_weight = weight * MEMORY_WEIGHT_CONFIG["level_weights"]["L2"] * time_boost
+            time_boost = memory_weight_preset["freshness"]["boost"] if delta_hours < memory_weight_preset["freshness"]["hours"] else 1.0
+            final_weight = weight * memory_weight_preset["level_weights"]["L2"] * time_boost
             weighted_memories.append((final_weight, summary))
             self.ap.logger.info(f"L2记忆权重计算 | 原始:{weight:.2f} 时间加成:{time_boost} 最终:{final_weight:.2f}")
 
@@ -552,11 +578,11 @@ class Memory:
             _, tags = next((s, t) for s, t in self._long_term_memory if s == summary)
             time_str = self._extract_time_tag(tags)[1]
             if time_str == "":
-                time_str = datetime.fromtimestamp(1745069038).strftime("%Y-%m-%d %H:%M:%S")
+                time_str = datetime.fromtimestamp(self._backoff_timestamp).strftime("%Y-%m-%d %H:%M:%S")
             mem_time = self.get_time_form_str(time_str) if time_str else current_time
             delta_hours = (current_time - mem_time).total_seconds() / 3600
-            time_boost = MEMORY_WEIGHT_CONFIG["freshness"]["boost"] if delta_hours < MEMORY_WEIGHT_CONFIG["freshness"]["hours"] else 1.0
-            final_weight = weight * MEMORY_WEIGHT_CONFIG["level_weights"]["L1"] * time_boost
+            time_boost = memory_weight_preset["freshness"]["boost"] if delta_hours < memory_weight_preset["freshness"]["hours"] else 1.0
+            final_weight = weight * memory_weight_preset["level_weights"]["L1"] * time_boost
             weighted_memories.append((final_weight, summary))
             self.ap.logger.info(f"L1记忆权重计算 | 原始:{weight:.2f} 时间加成:{time_boost} 最终:{final_weight:.2f}")
 
