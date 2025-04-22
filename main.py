@@ -24,6 +24,7 @@ COMMANDS = {
     "列出命令": "列出目前支援所有命令及介绍，用法：[列出命令]。",
     "全部记忆": "显示目前所有长短期记忆，用法：[全部记忆]。",
     "会话记忆":"显示当前会话使用的记忆，用法：[会话记忆]。",
+    "最近记忆": "显示最近的长期记忆，用法：[最近记忆]。",
     "删除记忆": "删除所有长短期记忆，用法：[删除记忆]。",
     "修改数值": "修改Value Game的数字，用法：[修改数值][数值]。",
     "态度": "显示当前Value Game所对应的“态度Manner”，用法：[态度]。",
@@ -292,6 +293,8 @@ class Waifu(BasePlugin):
             response = config.memory.get_all_memories()
         elif msg == "会话记忆":
             response = config.memory.get_memories_session()
+        elif msg == "最近记忆":
+            response = config.memory.get_latest_memory()
         elif msg == "删除记忆":
             response = self._stop_timer(launcher_id)
             config.memory.delete_local_files()
