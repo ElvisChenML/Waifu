@@ -25,6 +25,11 @@ COMMANDS = {
     "全部记忆": "显示目前所有长短期记忆，用法：[全部记忆]。",
     "会话记忆":"显示当前会话使用的记忆，用法：[会话记忆]。",
     "最近记忆": "显示最近的长期记忆，用法：[最近记忆]。",
+    "最近召回": "显示最近召回的记忆，用法：[最近召回]。",
+    "最近L1召回": "显示最近召回的记忆，用法：[最近L1召回]。",
+    "最近L2召回": "显示最近召回的记忆，用法：[最近L2召回]。",
+    "最近L3召回": "显示最近召回的记忆，用法：[最近L3召回]。",
+    "最近L4召回": "显示最近召回的记忆，用法：[最近L4召回]。",
     "删除记忆": "删除所有长短期记忆，用法：[删除记忆]。",
     "修改数值": "修改Value Game的数字，用法：[修改数值][数值]。",
     "态度": "显示当前Value Game所对应的“态度Manner”，用法：[态度]。",
@@ -295,6 +300,16 @@ class Waifu(BasePlugin):
             response = config.memory.get_memories_session()
         elif msg == "最近记忆":
             response = config.memory.get_latest_memory()
+        elif msg == "最近召回":
+            response = config.memory.get_last_recall_memories()
+        elif msg == "最近L1召回":
+            response = config.memory.get_last_l1_recall_memories()
+        elif msg == "最近L2召回":
+            response = config.memory.get_last_l2_recall_memories()
+        elif msg == "最近L3召回":
+            response = config.memory.get_last_l3_recall_memories()
+        elif msg == "最近L4召回":
+            response = config.memory.get_last_l4_recall_memories()
         elif msg == "删除记忆":
             response = self._stop_timer(launcher_id)
             config.memory.delete_local_files()

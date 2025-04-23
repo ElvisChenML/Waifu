@@ -15,10 +15,11 @@ from plugins.Waifu.cells.config import ConfigManager
 
 
 ## 多级召回记忆系统
-# L0 短期记忆 完整对话
-# L1 会话记忆 高时间敏感性 弱主题关联
-# L2 长期记忆 周级衰减 主题覆盖阈值
-# L3 归档记忆 月度衰减 精准匹配
+# L0 短期记忆 完整对话 滑动窗口 无指向要求
+# L1 会话记忆 0-3天 分钟级时间敏感 低指向
+# L2 近期记忆 0-7天 小时级衰减 中低指向
+# L3 长期记忆 0-30天 天级衰减 中指向
+# L4 归档记忆 30天以上 天级衰减 高指向
 
 class Memory:
 
@@ -63,9 +64,15 @@ class Memory:
         self._memories_recall_once = 5
         self._memory_weight_max = 1.0
         self._memory_decay_rate = 0.95
-        self._memory_boost_rate = 0.3
+        self._memory_boost_rate = 0.15
         self._memory_base_growth = 0.2
         self._backoff_timestamp = 1745069038
+        # debug info
+        self._last_recall_memories = []
+        self._last_l1_recall_memories = []
+        self._last_l2_recall_memories = []
+        self._last_l3_recall_memories = []
+        self._last_l4_recall_memories = []
 
     async def load_config(self, character: str, launcher_id: str, launcher_type: str):
         waifu_config = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu", launcher_id)
@@ -324,15 +331,77 @@ class Memory:
         norm_b = np.linalg.norm(vector_b)
         return 0.0 if norm_a == 0 or norm_b == 0 else dot_product / (norm_a * norm_b)
 
+    def _get_event_seq_of_memory(self, memory: str) -> int:
+        for i in range(len(self._long_term_memory)):
+            if self._long_term_memory[i][0] == memory:
+                return i
+        return len(self._long_term_memory)
+
+    def get_last_recall_memories(self) -> str:
+        memories = []
+        for summary,weight in self._last_recall_memories:
+            memories.append(f"权重：{weight:.2f} 记忆：{summary}")
+        return "\n\n".join(memories)
+
+    def get_last_l1_recall_memories(self) -> str:
+        memories = []
+        for weight, similarity, summary in self._last_l1_recall_memories:
+            memories.append(f"权重：{weight:.2f} 相似度：{similarity:.2f} 记忆：{summary}")
+        msg = "\n\n".join(memories)
+        self.ap.logger.info(f"召回L1记忆：\n\n{msg}")
+        return "已打印"
+
+    def get_last_l2_recall_memories(self) -> str:
+        memories = []
+        for weight, similarity, summary in self._last_l2_recall_memories:
+            memories.append(f"权重：{weight:.2f} 相似度：{similarity:.2f} 记忆：{summary}")
+        msg = "\n\n".join(memories)
+        self.ap.logger.info(f"召回L2记忆：\n\n{msg}")
+        return "已打印"
+
+    def get_last_l3_recall_memories(self) -> str:
+        memories = []
+        for weight, jaccard, similarity, summary in self._last_l3_recall_memories:
+            memories.append(f"权重：{weight:.2f} Jaccard: {jaccard:.2f} 相似度：{similarity:.2f} 记忆：{summary}")
+        msg = "\n\n".join(memories)
+        self.ap.logger.info(f"召回L3记忆：\n\n{msg}")
+        return "已打印"
+
+    def get_last_l4_recall_memories(self) -> str:
+        memories = []
+        for weight, jaccard, similarity, summary in self._last_l4_recall_memories:
+            memories.append(f"权重：{weight:.2f} Jaccard: {jaccard:.2f} 相似度：{similarity:.2f} 记忆：{summary}")
+        msg = "\n\n".join(memories)
+        self.ap.logger.info(f"召回L4记忆：\n\n{msg}")
+        return "已打印"
+
+    def _detect_query_type(self, tags: typing.List[str]) -> str:
+        """查询类型检测"""
+        time_indicators = {'今天','昨天','上午','下午','傍晚','晚上','早上','清晨','凌晨'}
+        scene_markers = {'当时','那时'}
+        just_right_now_indicators = {'之前','以前','刚刚'}
+
+        if any(m in tags for m in scene_markers):
+            return 'high_scene'
+        elif any(t in tags for t in time_indicators):
+            return 'low_time'
+        elif any(j in tags for j in just_right_now_indicators):
+            return 'low_general'
+        else:
+            return 'general'
+
     def _retrieve_related_l1_memories(self, input_tags: typing.List[str]) -> typing.List[tuple[float, typing.List[str]]]:
         self.ap.logger.info(f"开始L1记忆召回 Tags: {', '.join(input_tags)}")
-        # 召回L1记忆
         current_time = datetime.now()
         input_vector = self._get_tag_vector(input_tags)
         l1_memories = []
+        self._last_l1_recall_memories = []
 
-        DECAY_RATE_PER_MIN = 0.00015 # 每分钟衰减率（7天后权重≈0.3）
-        SIMILARITY_THRESHOLD = 0.1  # 综合权重最低准入值
+        # L1配置（0-3天）
+        DECAY_RATE_PER_MIN = 0.0008  # 3天后权重≈0.05
+        SIMILARITY_THRESHOLD = 0.22
+        MAX_DAYS = 3
+        TIME_WEIGHT_POWER = 1.8  # 强化时间影响
 
         for summary, tags in self._long_term_memory:
             # 提取元标签
@@ -343,19 +412,28 @@ class Memory:
             else:
                 time_tags = summary_time.strftime("%Y-%m-%d %H:%M:%S")
 
-            current_time = datetime.now()
-            summary_vector = self._get_tag_vector(tags)
-            similarity = self._cosine_similarity(input_vector, summary_vector)
-            # 计算时间衰减权重
-            delta_time = current_time - summary_time
-            delta_min = delta_time.total_seconds() / 60
-            time_weight = math.exp(-DECAY_RATE_PER_MIN * delta_min)
-             # 综合权重 = 语义相似度 * 时间衰减
-            weight = similarity * time_weight
-            if weight > SIMILARITY_THRESHOLD:
+            # 严格时间过滤
+            delta_days = (current_time - summary_time).days
+            if delta_days > MAX_DAYS:
+                continue
+
+            # 时间敏感度检测
+            query_type = self._detect_query_type(input_tags)
+            time_boost = 1.6 if 'time' in query_type else 1.0
+
+            # 计算权重
+            delta_min = (current_time - summary_time).total_seconds() / 60
+            time_weight = math.exp(-DECAY_RATE_PER_MIN * delta_min) ** TIME_WEIGHT_POWER
+            similarity = self._cosine_similarity(input_vector, self._get_tag_vector(tags))
+            weight = similarity * time_weight * time_boost
+
+            self._last_l1_recall_memories.append((weight, similarity, summary[:40]))
+
+            # 动态准入
+            dynamic_th = SIMILARITY_THRESHOLD * (0.8 if 'time' in query_type else 1.2)
+            if weight > dynamic_th:
                 l1_memories.append((weight, summary))
 
-            self.ap.logger.debug(f"L1 Memory: Weight:{weight}, Time:{time_tags}, Similarity: {similarity}, Summary: {summary}, Tags: {tags}")
         l1_memories.sort(reverse=True, key=lambda x: x[0])
         return l1_memories[: self._memories_recall_once]
 
@@ -365,8 +443,11 @@ class Memory:
         input_vector = self._get_tag_vector(input_tags)
         l2_memories = []
 
-        TIME_DECAY_RATE = 0.0012  # 每小时衰减率（30天后权重≈0.4）
-        SIMILARITY_THRESHOLD = 0.4
+        # L2配置（3-7天）
+        TIME_DECAY_RATE = 0.0004  # 小时级衰减
+        SIMILARITY_THRESHOLD = 0.18
+        MIN_DAYS, MAX_DAYS = 3, 7
+        TOPIC_WEIGHT = 0.6  # 主题权重提升
 
         for summary, tags in self._long_term_memory:
             # 提取元标签
@@ -376,29 +457,27 @@ class Memory:
                 summary_time = self.get_time_form_str(time_tags)
             else:
                 time_tags = summary_time.strftime("%Y-%m-%d %H:%M:%S")
-            current_time = datetime.now()
 
-            # 计算相似度
-            summary_vector = self._get_tag_vector(tags)
-            similarity = self._cosine_similarity(input_vector, summary_vector)
+            delta_days = (current_time - summary_time).days
+            if not (MIN_DAYS <= delta_days <= MAX_DAYS):
+                continue
 
-            # 计算时间衰减（按天计算）
-            delta_hours = (current_time - summary_time).total_seconds() / 3600
-            time_weight = math.exp(-TIME_DECAY_RATE * delta_hours)
-
-            # 计算主题覆盖度
+            # 主题关联计算
             real_tags = self._get_real_tags(tags)
             topic_overlap = len(set(input_tags) & set(real_tags))
-            topic_coverage = topic_overlap / len(input_tags) if input_tags else 0
+            topic_coverage = topic_overlap / max(len(input_tags), 1)
 
-            # 综合权重公式
-            weight = similarity * time_weight * (0.6 + 0.4 * topic_coverage)
+            # 权重计算
+            delta_hours = (current_time - summary_time).total_seconds() / 3600
+            time_weight = math.exp(-TIME_DECAY_RATE * delta_hours)
+            similarity = self._cosine_similarity(input_vector, self._get_tag_vector(tags))
+            weight = similarity * time_weight * (0.4 + TOPIC_WEIGHT * topic_coverage)
 
-            # 准入检查
-            if weight >= SIMILARITY_THRESHOLD:
+            self._last_l2_recall_memories.append((weight, similarity, summary[:40]))
+
+            # 分级准入
+            if weight >= SIMILARITY_THRESHOLD or (topic_coverage >= 0.4 and similarity >= 0.12):
                 l2_memories.append((weight, summary))
-
-            self.ap.logger.debug(f"L2 Memory: Weight:{weight}, Time:{time_tags}, Similarity:{similarity}, Top Coverage {topic_coverage}:, Summary: {summary}, Tags: {tags}")
 
         l2_memories.sort(reverse=True, key=lambda x: x[0])
         return l2_memories[: self._memories_recall_once]
@@ -408,13 +487,12 @@ class Memory:
         current_time = datetime.now()
         input_vector = self._get_tag_vector(input_tags)
         l3_memories = []
-        input_set = set(input_tags)
 
-        # 参数配置
-        JACCARD_WEIGHT = 0.4       # 标签匹配权重
-        COSINE_WEIGHT = 0.6        # 语义相似权重
-        TIME_DECAY = 0.00023  # e^(-0.00023 * 180) ≈ 0.93 → 180天保留93%
-        MINI_WEIGHT = 0.25         # 综合相似度阈值
+        # L3配置（7-30天）
+        DECAY_RATE = 0.00015  # 天级衰减
+        SIMILARITY_THRESHOLD = 0.15
+        MIN_DAYS, MAX_DAYS = 7, 30
+        JACCARD_FLOOR = 0.05  # 最低标签匹配
 
         for summary, tags in self._long_term_memory:
             # 提取元标签
@@ -424,73 +502,116 @@ class Memory:
                 summary_time = self.get_time_form_str(time_tags)
             else:
                 time_tags = summary_time.strftime("%Y-%m-%d %H:%M:%S")
-            current_time = datetime.now()
 
-            # 计算时间衰减
             delta_days = (current_time - summary_time).days
-            time_weight = math.exp(-TIME_DECAY * delta_days)
+            if not (MIN_DAYS <= delta_days <= MAX_DAYS):
+                continue
 
-            # 计算主题覆盖度
-            mem_tags = set(tags)
-            intersection = input_set & mem_tags
-            union = input_set | mem_tags
+            # 混合匹配计算
+            mem_tags = set(self._get_real_tags(tags))
+            input_set = set(input_tags)
+            jaccard = len(input_set & mem_tags) / len(input_set | mem_tags) if input_set else 0
 
-            # 计算余弦相似度
-            summary_vector = self._get_tag_vector(tags)
-            cos_similarity = self._cosine_similarity(input_vector, summary_vector)
+            similarity = self._cosine_similarity(input_vector, self._get_tag_vector(tags))
+            time_weight = math.exp(-DECAY_RATE * delta_days)
+            weight = (similarity * 0.7 + jaccard * 0.3) * time_weight
 
-            # 计算Jaccard相似度
-            jaccard = len(intersection) / len(union) if union else 0
+            self._last_l3_recall_memories.append((weight, jaccard, similarity, summary[:40]))
 
-            # 混合相似度计算
-            weight = (JACCARD_WEIGHT * jaccard +
-                     COSINE_WEIGHT * cos_similarity) * time_weight
-
-            # 严格准入规则
-            if weight >= MINI_WEIGHT:
+            # 准入规则
+            if weight >= SIMILARITY_THRESHOLD and jaccard >= JACCARD_FLOOR:
                 l3_memories.append((weight, summary))
-
-            self.ap.logger.debug(f"L3 Memory: Weight:{weight}, Time:{time_tags}, Jaccard:{jaccard}, Similarity:{cos_similarity}, Summary: {summary}, Tags: {tags}")
 
         l3_memories.sort(reverse=True, key=lambda x: x[0])
         return l3_memories[: self._memories_recall_once]
 
+    def _retrieve_related_l4_memories(self, input_tags: typing.List[str]) -> typing.List[tuple[float, str]]:
+        self.ap.logger.info(f"开始L4记忆召回 Tags: {', '.join(input_tags)}")
+        current_time = datetime.now()
+        input_vector = self._get_tag_vector(input_tags)
+        l4_memories = []
+
+        # L4配置（30天+）
+        DECAY_RATE = 0.00002  # 超低衰减率
+        EMERGENCY_THRESHOLD = 0.4
+        SIMILARITY_THRESHOLD = 0.12
+
+        for summary, tags in self._long_term_memory:
+            # 提取元标签
+            (_,time_tags) = self._extract_time_tag(tags)
+            summary_time = datetime.fromtimestamp(self._backoff_timestamp)
+            if time_tags != "":
+                summary_time = self.get_time_form_str(time_tags)
+            else:
+                time_tags = summary_time.strftime("%Y-%m-%d %H:%M:%S")
+
+            delta_days = (current_time - summary_time).days
+            if delta_days < 30:
+                continue
+
+            # 纯语义匹配
+            similarity = self._cosine_similarity(input_vector, self._get_tag_vector(tags))
+            time_weight = math.exp(-DECAY_RATE * delta_days)
+            weight = similarity * time_weight
+
+            self._last_l4_recall_memories.append((weight, similarity, summary[:40]))
+
+            # 紧急通道 + 正常准入
+            if weight >= SIMILARITY_THRESHOLD or similarity >= EMERGENCY_THRESHOLD:
+                l4_memories.append((weight, summary))
+
+        l4_memories.sort(reverse=True, key=lambda x: x[0])
+        return l4_memories[: self._memories_recall_once]
+
+
     def _update_memories_session(self, new_memories: list):
         """更新记忆池"""
+        good_memory_weight = 0.3
+        mid_memory_weight = 0.2
+
         # 步骤1：衰减旧记忆权重
-        self._memories_session = [
-            (m, s * 0.97)  # 全局微量衰减
-            for m, s in self._memories_session
-        ]
+        for mem, old_score in self._memories_session:
+            # 根据记忆质量调整衰减率
+            decay_rate = 0.85
+            if old_score > 0.4:
+                decay_rate = 0.9
+            new_score = old_score * decay_rate
 
         # 步骤2：计算动态增量
         updated = {}
         for mem, old_score in self._memories_session:
-            # 计算剩余增长空间
-            headroom = self._memory_weight_max - old_score
-            # 动态增长率 = 基础因子 × 剩余空间的平方占比
-            growth_rate = self._memory_base_growth * (headroom ** 2 / self._memory_weight_max)
-            new_score = old_score + growth_rate
-            updated[mem] = min(new_score, self._memory_weight_max)
+            if mem in [k for k in new_memories]:
+                similarity = new_memories[mem]
+                # 计算剩余增长空间
+                headroom = self._memory_weight_max - old_score
+                # 动态增长率 = 基础因子 × 剩余空间的平方占比
+                base_growth = self._memory_base_growth * (1 + similarity * 0.5)
+                growth_rate = base_growth * (headroom ** 1.5 / self._memory_weight_max)
+                new_score = old_score + growth_rate
+                updated[mem] = min(new_score,1.0)
 
-        # 步骤3：合并新记忆（带初始加成）
-        current_max = max(updated.values()) if updated else 0
-        for mem in new_memories:
-            # 初始值为当前最大值的60% + 新记忆加成
-            initial = min(max(current_max * 0.6 + self._memory_boost_rate, 0.5), 0.9)
-            updated[mem] = max(updated.get(mem, 0), initial)
+        # 步骤3：合并新记忆
+        for mem,weight in new_memories:
+            if mem in updated:
+                continue
+            quality_factor = 0.8
+            if weight > good_memory_weight:
+                quality_factor = 1.8
+            elif weight > mid_memory_weight:
+                quality_factor = 1.4
+
+            init_score = min(weight * quality_factor, self._memory_weight_max)  # 设置上限
+            updated[mem] = init_score
 
         # 步骤4：排序保留TopN
         sorted_mem = sorted(updated.items(), key=lambda x: -x[1])
         sorted_mem = sorted_mem[:self._memories_session_capacity]
+        # 在排序后添加淘汰逻辑
+        sorted_mem = [
+            (mem, score) for mem, score in sorted_mem
+            if score > 0.15
+        ]
         self._memories_session = sorted_mem.copy()
-
-        # 步骤5: 加入最新记忆
-        latest = self.get_latest_memory()
-        if latest not in self._memories_session:
-            smallest = self._memories_session[-1]
-            smallest_weight = min(max(current_max * 0.6 + self._memory_boost_rate, 0.5), smallest[1])
-            self._memories_session[-1] = (latest, smallest_weight)
 
         # 调试日志
         self.ap.logger.info(f"记忆池更新完成，当前内容：{self._memories_session}")
@@ -524,45 +645,51 @@ class Memory:
         self.ap.logger.info(f"开始多级记忆召回 Tags: {', '.join(input_tags)}")
 
         # 获取各层记忆结果（带权重）
-        l3_results = self._retrieve_related_l3_memories(input_tags)  # 格式: [(weight, summary)]
-        l2_results = self._retrieve_related_l2_memories(input_tags)
-        l1_results = self._retrieve_related_l1_memories(input_tags)
+        l1_results =[]
+        l2_results = []
+        l3_results = []
+        l4_results = []
 
-        level_factors = {
-            "L1": {"base": 1.2, "decay": 0.8},
-            "L2": {"base": 1.0, "decay": 0.9},
-            "L3": {"base": 1.0, "decay": 1.0}
-        }
+        recall_threshold = self._memories_recall_once * 1.2
+        current_recall_count = 0
+
+        l1_results = self._retrieve_related_l1_memories(input_tags)
+        current_recall_count += len(l1_results)
+
+        if current_recall_count < recall_threshold:
+            l2_results = self._retrieve_related_l2_memories(input_tags)
+            current_recall_count += len(l2_results)
+
+        if current_recall_count < recall_threshold:
+            l3_results = self._retrieve_related_l3_memories(input_tags)
+            current_recall_count += len(l3_results)
+
+        if current_recall_count < recall_threshold:
+            l4_results = self._retrieve_related_l4_memories(input_tags)
+            current_recall_count += len(l4_results)
 
         # 构建带权记忆池
         weighted_memories = []
 
-        # 处理L3记忆
-        factor = level_factors["L3"]["base"]
-        decay = level_factors["L3"]["decay"]
-        for weight, summary in l3_results:
-            final_weight = weight * factor
-            factor *= decay
+        # 处理L4记忆
+        for weight, summary in l4_results:
+            final_weight = weight
             weighted_memories.append((final_weight , summary))
-            self.ap.logger.info(f"L3记忆权重计算 | 原始:{weight:.2f}  最终:{final_weight:.2f}")
+
+        # 处理L3记忆
+        for weight, summary in l3_results:
+            final_weight = weight
+            weighted_memories.append((final_weight , summary))
 
         # 处理L2记忆
-        factor = level_factors["L2"]["base"]
-        decay = level_factors["L2"]["decay"]
         for weight, summary in l2_results:
-            final_weight = weight * factor
-            factor *= decay
+            final_weight = weight
             weighted_memories.append((final_weight, summary))
-            self.ap.logger.info(f"L2记忆权重计算 | 原始:{weight:.2f} 最终:{final_weight:.2f}")
 
         # 处理L1记忆
-        factor = level_factors["L1"]["base"]
-        decay = level_factors["L1"]["decay"]
         for weight, summary in l1_results:
-            final_weight = weight * factor
-            factor *= decay
+            final_weight = weight
             weighted_memories.append((final_weight, summary))
-            self.ap.logger.info(f"L1记忆权重计算 | 原始:{weight:.2f} 最终:{final_weight:.2f}")
 
         # 记忆去重（保留最高权重）
         memory_dict = {}
@@ -575,13 +702,14 @@ class Memory:
         self.ap.logger.info(f"加权合并完成，共召回{len(sorted_memories)}条记忆")
 
         # 截取前N个结果
+        self._last_recall_memories = sorted_memories[:self._memories_recall_once]
         result = [mem for mem, _ in sorted_memories[:self._memories_recall_once]]
         for mem in result:
             self.ap.logger.info(f"召回记忆: {mem}")
         self.ap.logger.info(f"召回并选择了{len(result)}条记忆")
 
         # 更新记忆池
-        self._update_memories_session(result)
+        self._update_memories_session(sorted_memories[:self._memories_recall_once])
         memories = self._get_memories_session()
         return memories[: self._retrieve_top_n]
 
@@ -864,3 +992,4 @@ class Memory:
 
     def set_jail_break(self, type: str, user_name: str):
         self._generator.set_jail_break(type, user_name)
+
