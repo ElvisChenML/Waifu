@@ -409,6 +409,11 @@ class Memory:
         else:
             return 'general'
 
+    def _format_memory_summary(self,curr:datetime,summary_time:datetime, summary: str) -> str:
+        delta = curr - summary_time
+        delta_hours = delta.total_seconds()/3600
+        return f"过去的事件发生于{summary_time}，距离现在已经过去{delta_hours:.3f}小时 {summary}"
+
     def _retrieve_related_l0_memories(self, input_tags: typing.List[str]) -> typing.List[tuple[float, typing.List[str]]]:
         self.ap.logger.info(f"开始L0记忆召回 Tags: {', '.join(input_tags)}")
         current_time = datetime.now()
@@ -446,7 +451,7 @@ class Memory:
 
             # 准入规则
             if similarity > SIMILARITY_FLOOR:
-                l0_memories.append((weight, f"事件发生于{summary_time} {summary}"))
+                l0_memories.append((weight,self._format_memory_summary(current_time, summary_time, summary)))
 
             self._last_l0_recall_memories.append((weight, similarity, summary[:40]))
 
@@ -490,7 +495,7 @@ class Memory:
             hour_factor = (delta_hours - MIN_HOURS) / (MAX_HOURS - MIN_HOURS)  # 0~1
             dynamic_th = 0.16 * (1 - 0.3 * hour_factor)
             if weight > dynamic_th:
-                l1_memories.append((weight, f"事件发生于{summary_time} {summary}"))
+                l1_memories.append((weight, self._format_memory_summary(current_time, summary_time, summary)))
 
         l1_memories.sort(reverse=True, key=lambda x: x[0])
         return l1_memories[: self._memories_recall_once]
@@ -542,7 +547,7 @@ class Memory:
 
             # 分级准入
             if weight >= SIMILARITY_THRESHOLD or (jaccard >= 0.02 and similarity >= 0.12):
-                l2_memories.append((weight, f"事件发生于{summary_time} {summary}"))
+                l2_memories.append((weight, self._format_memory_summary(current_time, summary_time, summary)))
 
         l2_memories.sort(reverse=True, key=lambda x: x[0])
         return l2_memories[: self._memories_recall_once]
@@ -585,7 +590,7 @@ class Memory:
 
             # 准入规则
             if weight >= SIMILARITY_THRESHOLD and jaccard >= JACCARD_FLOOR:
-                l3_memories.append((weight, f"事件发生于{summary_time} {summary}"))
+                l3_memories.append((weight, self._format_memory_summary(current_time, summary_time, summary)))
 
         l3_memories.sort(reverse=True, key=lambda x: x[0])
         return l3_memories[: self._memories_recall_once]
@@ -628,7 +633,7 @@ class Memory:
 
             # 紧急通道 + 正常准入
             if weight >= SIMILARITY_THRESHOLD or similarity >= EMERGENCY_THRESHOLD and len(tags) >= 5:
-                l4_memories.append((weight, f"事件发生于{summary_time} {summary}"))
+                l4_memories.append((weight, self._format_memory_summary(current_time, summary_time, summary)))
 
         l4_memories.sort(reverse=True, key=lambda x: x[0])
         return l4_memories[: self._memories_recall_once]
@@ -668,10 +673,14 @@ class Memory:
 
             # 准入规则（可扩展点：未来添加人工审核接口）
             if weight >= SIMILARITY_THRESHOLD:
-                l5_memories.append((weight, f"事件发生于{summary_time} {summary}"))
+                l5_memories.append((weight,self._format_memory_summary(current_time, summary_time, summary)))
 
         l5_memories.sort(reverse=True, key=lambda x: x[0])
         return l5_memories[: self._memories_recall_once]
+
+    def _clear_memories_session(self):
+        self._memories_session = []
+        self.ap.logger.info("记忆池已清空")
 
     def _update_memories_session(self, new_memories: list):
         """更新记忆池"""
@@ -709,18 +718,20 @@ class Memory:
             elif weight > mid_memory_weight:
                 quality_factor = 1.4
 
-            init_score = min(weight * quality_factor, self._memory_weight_max)  # 设置上限
+            init_score = min(weight * quality_factor, self._memory_weight_max * 0.7)  # 设置上限
             updated[mem] = init_score
 
         # 步骤4：排序保留TopN
         sorted_mem = sorted(updated.items(), key=lambda x: -x[1])
         sorted_mem = sorted_mem[:self._memories_session_capacity]
-        # 在排序后添加淘汰逻辑
-        sorted_mem = [
-            (mem, score) for mem, score in sorted_mem
-            if score > 0.15
-        ]
-        self._memories_session = sorted_mem.copy()
+        for i in range(len(sorted_mem)):
+            mem, score = sorted_mem[i]
+            if score < 0.15:
+                # 低于阈值的记忆不再保留
+                sorted_mem.pop(i)
+                break
+
+        self._memories_session = sorted_mem
 
         # 调试日志
         self.ap.logger.info(f"记忆池更新完成，当前内容：{self._memories_session}")
@@ -839,7 +850,12 @@ class Memory:
 
         # 更新记忆池
         self._update_memories_session(sorted_memories[:self._memories_recall_once])
+
         memories = self._get_memories_session()
+
+        # 如果没找到任何记忆，就添加最新的记忆维持会话连续
+        if len(memories) == 0 and len(self._long_term_memory) != 0:
+            memories = [self._long_term_memory[-1][0]]
         return memories[: self._retrieve_top_n]
 
     async def save_memory(self, role: str, content: str):
