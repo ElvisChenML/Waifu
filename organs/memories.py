@@ -432,7 +432,7 @@ class Memory:
             # 动态准入
             dynamic_th = SIMILARITY_THRESHOLD * (0.8 if 'time' in query_type else 1.2)
             if weight > dynamic_th:
-                l1_memories.append((weight, summary))
+                l1_memories.append((weight, f"事件发生于{summary_time} {summary}"))
 
         l1_memories.sort(reverse=True, key=lambda x: x[0])
         return l1_memories[: self._memories_recall_once]
@@ -481,7 +481,7 @@ class Memory:
 
             # 分级准入
             if weight >= SIMILARITY_THRESHOLD or (jaccard >= 0.02 and similarity >= 0.12):
-                l2_memories.append((weight, summary))
+                l2_memories.append((weight, f"事件发生于{summary_time} {summary}"))
 
         l2_memories.sort(reverse=True, key=lambda x: x[0])
         return l2_memories[: self._memories_recall_once]
@@ -524,7 +524,7 @@ class Memory:
 
             # 准入规则
             if weight >= SIMILARITY_THRESHOLD and jaccard >= JACCARD_FLOOR:
-                l3_memories.append((weight, summary))
+                l3_memories.append((weight, f"事件发生于{summary_time} {summary}"))
 
         l3_memories.sort(reverse=True, key=lambda x: x[0])
         return l3_memories[: self._memories_recall_once]
@@ -563,7 +563,7 @@ class Memory:
 
             # 紧急通道 + 正常准入
             if weight >= SIMILARITY_THRESHOLD or similarity >= EMERGENCY_THRESHOLD:
-                l4_memories.append((weight, summary))
+                l4_memories.append((weight, f"事件发生于{summary_time} {summary}"))
 
         l4_memories.sort(reverse=True, key=lambda x: x[0])
         return l4_memories[: self._memories_recall_once]
