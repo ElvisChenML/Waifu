@@ -346,15 +346,15 @@ class Memory:
     def get_last_l1_recall_memories(self) -> str:
         memories = []
         for weight, similarity, summary in self._last_l1_recall_memories:
-            memories.append(f"权重：{weight:.2f} 相似度：{similarity:.2f} 记忆：{summary}")
+            memories.append(f"L1权重：{weight:.2f} 相似度：{similarity:.2f} 记忆：{summary}")
         msg = "\n\n".join(memories)
         self.ap.logger.info(f"召回L1记忆：\n\n{msg}")
         return "已打印"
 
     def get_last_l2_recall_memories(self) -> str:
         memories = []
-        for weight, similarity, summary in self._last_l2_recall_memories:
-            memories.append(f"权重：{weight:.2f} 相似度：{similarity:.2f} 记忆：{summary}")
+        for weight,jaccard, similarity, summary in self._last_l2_recall_memories:
+            memories.append(f"L2权重：{weight:.2f} Jaccard: {jaccard:.2f} 相似度：{similarity:.2f} 记忆：{summary}")
         msg = "\n\n".join(memories)
         self.ap.logger.info(f"召回L2记忆：\n\n{msg}")
         return "已打印"
@@ -362,15 +362,15 @@ class Memory:
     def get_last_l3_recall_memories(self) -> str:
         memories = []
         for weight, jaccard, similarity, summary in self._last_l3_recall_memories:
-            memories.append(f"权重：{weight:.2f} Jaccard: {jaccard:.2f} 相似度：{similarity:.2f} 记忆：{summary}")
+            memories.append(f"L3权重：{weight:.2f} Jaccard: {jaccard:.2f} 相似度：{similarity:.2f} 记忆：{summary}")
         msg = "\n\n".join(memories)
         self.ap.logger.info(f"召回L3记忆：\n\n{msg}")
         return "已打印"
 
     def get_last_l4_recall_memories(self) -> str:
         memories = []
-        for weight, jaccard, similarity, summary in self._last_l4_recall_memories:
-            memories.append(f"权重：{weight:.2f} Jaccard: {jaccard:.2f} 相似度：{similarity:.2f} 记忆：{summary}")
+        for weight, similarity, summary in self._last_l4_recall_memories:
+            memories.append(f"L4权重：{weight:.2f} 相似度：{similarity:.2f} 记忆：{summary}")
         msg = "\n\n".join(memories)
         self.ap.logger.info(f"召回L4记忆：\n\n{msg}")
         return "已打印"
@@ -398,10 +398,10 @@ class Memory:
         self._last_l1_recall_memories = []
 
         # L1配置（0-3天）
-        DECAY_RATE_PER_MIN = 0.0008  # 3天后权重≈0.05
+        DECAY_RATE_PER_MIN = 0.0005
         SIMILARITY_THRESHOLD = 0.22
         MAX_DAYS = 3
-        TIME_WEIGHT_POWER = 1.8  # 强化时间影响
+        TIME_WEIGHT_POWER = 1.3
 
         for summary, tags in self._long_term_memory:
             # 提取元标签
@@ -444,10 +444,10 @@ class Memory:
         l2_memories = []
 
         # L2配置（3-7天）
-        TIME_DECAY_RATE = 0.0004  # 小时级衰减
-        SIMILARITY_THRESHOLD = 0.18
-        MIN_DAYS, MAX_DAYS = 3, 7
-        TOPIC_WEIGHT = 0.6  # 主题权重提升
+        TIME_DECAY_RATE = 0.0001  # 小时级衰减
+        SIMILARITY_THRESHOLD = 0.12
+        MIN_DAYS, MAX_DAYS = 2.4, 7
+        TOPIC_WEIGHT = 0.5
 
         for summary, tags in self._long_term_memory:
             # 提取元标签
@@ -464,19 +464,23 @@ class Memory:
 
             # 主题关联计算
             real_tags = self._get_real_tags(tags)
-            topic_overlap = len(set(input_tags) & set(real_tags))
-            topic_coverage = topic_overlap / max(len(input_tags), 1)
+            input_set = set(input_tags)
+            mem_tags = set(real_tags)
+            intersection = input_set & mem_tags
+            union = input_set | mem_tags
+            jaccard = len(intersection)/len(union) if union else 0
 
             # 权重计算
             delta_hours = (current_time - summary_time).total_seconds() / 3600
             time_weight = math.exp(-TIME_DECAY_RATE * delta_hours)
             similarity = self._cosine_similarity(input_vector, self._get_tag_vector(tags))
-            weight = similarity * time_weight * (0.4 + TOPIC_WEIGHT * topic_coverage)
 
-            self._last_l2_recall_memories.append((weight, similarity, summary[:40]))
+            weight = similarity * time_weight * (0.5 + TOPIC_WEIGHT * jaccard)
+
+            self._last_l2_recall_memories.append((weight,jaccard, similarity, summary[:40]))
 
             # 分级准入
-            if weight >= SIMILARITY_THRESHOLD or (topic_coverage >= 0.4 and similarity >= 0.12):
+            if weight >= SIMILARITY_THRESHOLD or (jaccard >= 0.02 and similarity >= 0.12):
                 l2_memories.append((weight, summary))
 
         l2_memories.sort(reverse=True, key=lambda x: x[0])
@@ -491,8 +495,8 @@ class Memory:
         # L3配置（7-30天）
         DECAY_RATE = 0.00015  # 天级衰减
         SIMILARITY_THRESHOLD = 0.15
-        MIN_DAYS, MAX_DAYS = 7, 30
-        JACCARD_FLOOR = 0.05  # 最低标签匹配
+        MIN_DAYS, MAX_DAYS = 5.6, 30
+        JACCARD_FLOOR = 0.03  # 最低标签匹配
 
         for summary, tags in self._long_term_memory:
             # 提取元标签
@@ -535,6 +539,7 @@ class Memory:
         DECAY_RATE = 0.00002  # 超低衰减率
         EMERGENCY_THRESHOLD = 0.4
         SIMILARITY_THRESHOLD = 0.12
+        MIN_DAYS = 24
 
         for summary, tags in self._long_term_memory:
             # 提取元标签
@@ -546,7 +551,7 @@ class Memory:
                 time_tags = summary_time.strftime("%Y-%m-%d %H:%M:%S")
 
             delta_days = (current_time - summary_time).days
-            if delta_days < 30:
+            if delta_days < MIN_DAYS:
                 continue
 
             # 纯语义匹配
