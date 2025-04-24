@@ -412,7 +412,7 @@ class Memory:
     def _format_memory_summary(self,curr:datetime,summary_time:datetime, summary: str) -> str:
         delta = curr - summary_time
         delta_hours = delta.total_seconds()/3600
-        return f"过去的事件发生于{summary_time}，距离现在已经过去{delta_hours:.3f}小时 {summary}"
+        return f"过去的事件发生于{summary_time}，距离现在已经过去{delta_hours:.1f}小时 {summary}"
 
     def _retrieve_related_l0_memories(self, input_tags: typing.List[str]) -> typing.List[tuple[float, typing.List[str]]]:
         self.ap.logger.info(f"开始L0记忆召回 Tags: {', '.join(input_tags)}")
@@ -422,7 +422,7 @@ class Memory:
         self._last_l0_recall_memories = []
 
         # L0配置（0-24小时）
-        DECAY_RATE_PER_MIN = 0.002  # 每分钟衰减率（24小时后剩余≈exp(-0.002 * 1440)=0.057）
+        DECAY_RATE_PER_MIN = 0.001  # 每分钟衰减率（24小时后剩余≈exp(-0.002 * 1440)=0.057）
         MAX_HOURS = 24
         SIMILARITY_FLOOR = 0.12  # 最低相似度门槛
 
@@ -468,7 +468,7 @@ class Memory:
 
         # L1配置（1-3天）
         DECAY_RATE_PER_HOUR = 0.0096
-        MIN_HOURS, MAX_HOURS = 24, 72
+        MIN_HOURS, MAX_HOURS = 19, 72
 
         for summary, tags in self._long_term_memory:
             # 提取元标签
@@ -724,17 +724,16 @@ class Memory:
         # 步骤4：排序保留TopN
         sorted_mem = sorted(updated.items(), key=lambda x: -x[1])
         sorted_mem = sorted_mem[:self._memories_session_capacity]
-        for i in range(len(sorted_mem)):
-            mem, score = sorted_mem[i]
-            if score < 0.15:
-                # 低于阈值的记忆不再保留
-                sorted_mem.pop(i)
-                break
+        sorted_mem = [mem for mem, score in sorted_mem if score > 0.15]
 
         self._memories_session = sorted_mem
 
         # 调试日志
-        self.ap.logger.info(f"记忆池更新完成，当前内容：{self._memories_session}")
+        print_info = []
+        for mem, score in self._memories_session:
+            print_info.append(f"记忆：{mem} 权重：{score:.2f}")
+        msg = "\n\n".join(print_info)
+        self.ap.logger.info(f"记忆池更新完成，当前内容：{msg}")
 
     def get_latest_memory(self) -> str:
         """获取最新记忆"""
