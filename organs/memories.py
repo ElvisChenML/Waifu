@@ -334,12 +334,6 @@ class Memory:
         norm_b = np.linalg.norm(vector_b)
         return 0.0 if norm_a == 0 or norm_b == 0 else dot_product / (norm_a * norm_b)
 
-    def _get_event_seq_of_memory(self, memory: str) -> int:
-        for i in range(len(self._long_term_memory)):
-            if self._long_term_memory[i][0] == memory:
-                return i
-        return len(self._long_term_memory)
-
     def get_last_recall_memories(self) -> str:
         memories = []
         for summary,weight in self._last_recall_memories:
@@ -414,7 +408,7 @@ class Memory:
         delta_hours = delta.total_seconds()/3600
         return f"过去的事件发生于{summary_time}，距离现在已经过去{delta_hours:.1f}小时 {summary}"
 
-    def _retrieve_related_l0_memories(self, input_tags: typing.List[str]) -> typing.List[tuple[float, typing.List[str]]]:
+    def _retrieve_related_l0_memories(self, input_tags: typing.List[str]) -> typing.List[tuple[float, str]]:
         self.ap.logger.info(f"开始L0记忆召回 Tags: {', '.join(input_tags)}")
         current_time = datetime.now()
         input_vector = self._get_tag_vector(input_tags)
@@ -459,7 +453,7 @@ class Memory:
         l0_memories.sort(reverse=True, key=lambda x: x[0])
         return l0_memories[: self._memories_recall_once]
 
-    def _retrieve_related_l1_memories(self, input_tags: typing.List[str]) -> typing.List[tuple[float, typing.List[str]]]:
+    def _retrieve_related_l1_memories(self, input_tags: typing.List[str]) -> typing.List[tuple[float, str]]:
         self.ap.logger.info(f"开始L1记忆召回 Tags: {', '.join(input_tags)}")
         current_time = datetime.now()
         input_vector = self._get_tag_vector(input_tags)
@@ -724,7 +718,8 @@ class Memory:
         # 步骤4：排序保留TopN
         sorted_mem = sorted(updated.items(), key=lambda x: -x[1])
         sorted_mem = sorted_mem[:self._memories_session_capacity]
-        sorted_mem = [mem for mem, score in sorted_mem if score > 0.15]
+        # 过滤噪音
+        sorted_mem = [(mem, score) for mem, score in sorted_mem if score > 0.13]
 
         self._memories_session = sorted_mem
 
@@ -854,7 +849,14 @@ class Memory:
 
         # 如果没找到任何记忆，就添加最新的记忆维持会话连续
         if len(memories) == 0 and len(self._long_term_memory) != 0:
-            memories = [self._long_term_memory[-1][0]]
+            latest = self._long_term_memory[-1]
+            tags = latest[1]
+            time_tags = self._extract_time_tag(tags)[1]
+            if time_tags != "":
+                summary_time = self.get_time_form_str(time_tags)
+                latest = self._format_memory_summary(datetime.now(), summary_time, latest[0])
+                self.ap.logger.info(f"没有找到任何记忆，添加最新的记忆：{latest[0]}")
+                memories = [latest]
         return memories[: self._retrieve_top_n]
 
     async def save_memory(self, role: str, content: str):
