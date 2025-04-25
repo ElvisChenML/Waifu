@@ -12,6 +12,7 @@ from plugins.Waifu.cells.generator import Generator
 from pkg.plugin.context import APIHost
 from pkg.provider import entities as llm_entities
 from plugins.Waifu.cells.config import ConfigManager
+from plugins.Waifu.organs.memory_item import MemoryItem
 
 
 # 多级召回记忆系统
@@ -408,7 +409,7 @@ class Memory:
         delta_hours = delta.total_seconds()/3600
         return f"过去的事件发生于{summary_time}，距离现在已经过去{delta_hours:.1f}小时 {summary}"
 
-    def _retrieve_related_l0_memories(self, input_tags: typing.List[str]) -> typing.List[tuple[float, str]]:
+    def _retrieve_related_l0_memories(self, input_tags: typing.List[str]) -> typing.List[tuple[float, MemoryItem]]:
         self.ap.logger.info(f"开始L0记忆召回 Tags: {', '.join(input_tags)}")
         current_time = datetime.now()
         input_vector = self._get_tag_vector(input_tags)
@@ -440,12 +441,13 @@ class Memory:
             time_weight = math.exp(-DECAY_RATE_PER_MIN * delta_min)
             similarity = self._cosine_similarity(input_vector, self._get_tag_vector(tags))
             tag_boost = min(1.5, 0.5 + 0.1*len(tags))
-            recency_boost = 1.2 - 0.01*delta_min
+            recency_boost = max(1.2 - 0.01*delta_min,1.0)
             weight = similarity * time_weight * tag_boost * recency_boost
 
             # 准入规则
             if similarity > SIMILARITY_FLOOR:
-                l0_memories.append((weight,self._format_memory_summary(current_time, summary_time, summary)))
+                result_mem = MemoryItem(self._format_memory_summary(current_time,summary_time,summary),tags)
+                l0_memories.append((weight,result_mem))
 
             self._last_l0_recall_memories.append((weight, similarity, summary[:40]))
 
@@ -453,7 +455,7 @@ class Memory:
         l0_memories.sort(reverse=True, key=lambda x: x[0])
         return l0_memories[: self._memories_recall_once]
 
-    def _retrieve_related_l1_memories(self, input_tags: typing.List[str]) -> typing.List[tuple[float, str]]:
+    def _retrieve_related_l1_memories(self, input_tags: typing.List[str]) -> typing.List[tuple[float, MemoryItem]]:
         self.ap.logger.info(f"开始L1记忆召回 Tags: {', '.join(input_tags)}")
         current_time = datetime.now()
         input_vector = self._get_tag_vector(input_tags)
@@ -489,12 +491,13 @@ class Memory:
             hour_factor = (delta_hours - MIN_HOURS) / (MAX_HOURS - MIN_HOURS)  # 0~1
             dynamic_th = 0.16 * (1 - 0.3 * hour_factor)
             if weight > dynamic_th:
-                l1_memories.append((weight, self._format_memory_summary(current_time, summary_time, summary)))
+                result_mem = MemoryItem(self._format_memory_summary(current_time,summary_time,summary),tags)
+                l1_memories.append((weight, result_mem))
 
         l1_memories.sort(reverse=True, key=lambda x: x[0])
         return l1_memories[: self._memories_recall_once]
 
-    def _retrieve_related_l2_memories(self, input_tags: typing.List[str]) -> typing.List[tuple[float, str]]:
+    def _retrieve_related_l2_memories(self, input_tags: typing.List[str]) -> typing.List[tuple[float, MemoryItem]]:
         self.ap.logger.info(f"开始L2记忆召回 Tags: {', '.join(input_tags)}")
         current_time = datetime.now()
         input_vector = self._get_tag_vector(input_tags)
@@ -541,12 +544,13 @@ class Memory:
 
             # 分级准入
             if weight >= SIMILARITY_THRESHOLD or (jaccard >= 0.02 and similarity >= 0.12):
-                l2_memories.append((weight, self._format_memory_summary(current_time, summary_time, summary)))
+                result_mem = MemoryItem(self._format_memory_summary(current_time,summary_time,summary),tags)
+                l2_memories.append((weight, result_mem))
 
         l2_memories.sort(reverse=True, key=lambda x: x[0])
         return l2_memories[: self._memories_recall_once]
 
-    def _retrieve_related_l3_memories(self, input_tags: typing.List[str]) -> typing.List[tuple[float, str]]:
+    def _retrieve_related_l3_memories(self, input_tags: typing.List[str]) -> typing.List[tuple[float, MemoryItem]]:
         self.ap.logger.info(f"开始L3记忆召回 Tags: {', '.join(input_tags)}")
         current_time = datetime.now()
         input_vector = self._get_tag_vector(input_tags)
@@ -584,12 +588,13 @@ class Memory:
 
             # 准入规则
             if weight >= SIMILARITY_THRESHOLD and jaccard >= JACCARD_FLOOR:
-                l3_memories.append((weight, self._format_memory_summary(current_time, summary_time, summary)))
+                result_mem = MemoryItem(self._format_memory_summary(current_time,summary_time,summary),tags)
+                l3_memories.append((weight, result_mem))
 
         l3_memories.sort(reverse=True, key=lambda x: x[0])
         return l3_memories[: self._memories_recall_once]
 
-    def _retrieve_related_l4_memories(self, input_tags: typing.List[str]) -> typing.List[tuple[float, str]]:
+    def _retrieve_related_l4_memories(self, input_tags: typing.List[str]) -> typing.List[tuple[float, MemoryItem]]:
         self.ap.logger.info(f"开始L4记忆召回 Tags: {', '.join(input_tags)}")
         current_time = datetime.now()
         input_vector = self._get_tag_vector(input_tags)
@@ -627,12 +632,13 @@ class Memory:
 
             # 紧急通道 + 正常准入
             if weight >= SIMILARITY_THRESHOLD or similarity >= EMERGENCY_THRESHOLD and len(tags) >= 5:
-                l4_memories.append((weight, self._format_memory_summary(current_time, summary_time, summary)))
+                result_mem = MemoryItem(self._format_memory_summary(current_time,summary_time,summary),tags)
+                l4_memories.append((weight, result_mem))
 
         l4_memories.sort(reverse=True, key=lambda x: x[0])
         return l4_memories[: self._memories_recall_once]
 
-    def _retrieve_related_l5_memories(self, input_tags: typing.List[str]) -> typing.List[tuple[float, str]]:
+    def _retrieve_related_l5_memories(self, input_tags: typing.List[str]) -> typing.List[tuple[float, MemoryItem]]:
         self.ap.logger.info(f"开始L5记忆召回 Tags: {', '.join(input_tags)}")
         current_time = datetime.now()
         input_vector = self._get_tag_vector(input_tags)
@@ -667,7 +673,8 @@ class Memory:
 
             # 准入规则（可扩展点：未来添加人工审核接口）
             if weight >= SIMILARITY_THRESHOLD:
-                l5_memories.append((weight,self._format_memory_summary(current_time, summary_time, summary)))
+                result_mem = MemoryItem(self._format_memory_summary(current_time,summary_time,summary),tags)
+                l5_memories.append((weight,result_mem))
 
         l5_memories.sort(reverse=True, key=lambda x: x[0])
         return l5_memories[: self._memories_recall_once]
@@ -676,8 +683,10 @@ class Memory:
         self._memories_session = []
         self.ap.logger.info("记忆池已清空")
 
-    def _update_memories_session(self, new_memories: list):
+    def _update_memories_session(self, new_memories: typing.List[tuple[str,float]]):
         """更新记忆池"""
+        self.ap.logger.info(f"更新记忆池，当前内容：{self.get_memories_session()}")
+        self.ap.logger.info(f"新记忆数量：{len(new_memories)}")
         good_memory_weight = 0.3
         mid_memory_weight = 0.2
 
@@ -719,7 +728,7 @@ class Memory:
         sorted_mem = sorted(updated.items(), key=lambda x: -x[1])
         sorted_mem = sorted_mem[:self._memories_session_capacity]
         # 过滤噪音
-        sorted_mem = [(mem, score) for mem, score in sorted_mem if score > 0.13]
+        sorted_mem = [(mem, score) for mem, score in sorted_mem if score >= 0.14]
 
         self._memories_session = sorted_mem
 
@@ -755,7 +764,7 @@ class Memory:
             memories.append(f"记忆：{mem} 权重：{score:.2f}")
         return "\n\n".join(memories)
 
-    def _retrieve_related_memories(self, input_tags: typing.List[str]) -> typing.List[str]:
+    def _recall_memories(self,input_tags:typing.List[str]) -> typing.List[tuple[MemoryItem,float]]:
         self.ap.logger.info(f"开始多级记忆召回 Tags: {', '.join(input_tags)}")
 
         # 获取各层记忆结果（带权重）
@@ -765,7 +774,8 @@ class Memory:
         l4_results = []
         l5_results = []
 
-        recall_threshold = self._memories_recall_once * 1.8
+        # 防止前面层级过度召回导致后面的层级无法召回
+        recall_threshold = self._memories_recall_once * 3
         current_recall_count = 0
 
         if current_recall_count < recall_threshold:
@@ -793,21 +803,21 @@ class Memory:
             current_recall_count += len(l5_results)
 
         # 构建带权记忆池
-        weighted_memories = []
+        weighted_memories:typing.List[tuple[float,MemoryItem]] = []
 
         # 处理L5记忆
         for weight, summary in l5_results:
-            final_weight = weight
+            final_weight = weight * 1.5
             weighted_memories.append((final_weight , summary))
 
         # 处理L4记忆
         for weight, summary in l4_results:
-            final_weight = weight
+            final_weight = weight * 1.3
             weighted_memories.append((final_weight , summary))
 
         # 处理L3记忆
         for weight, summary in l3_results:
-            final_weight = weight
+            final_weight = weight * 1.1
             weighted_memories.append((final_weight , summary))
 
         # 处理L2记忆
@@ -822,28 +832,142 @@ class Memory:
 
         # 处理L0记忆
         for weight, summary in l0_results:
-            final_weight = weight
+            # 限制L0记忆权重
+            final_weight = min(weight,0.2)
             weighted_memories.append((final_weight, summary))
 
         # 记忆去重（保留最高权重）
-        memory_dict = {}
+        memory_dict:dict[str,tuple[float,MemoryItem]] = {}
         for weight, mem in weighted_memories:
-            if mem not in memory_dict or weight > memory_dict[mem]:
-                memory_dict[mem] = weight
+            key = mem.summary()
+            if key not in memory_dict or weight > memory_dict[key][0]:
+                memory_dict[key] = (weight,mem)
 
         # 按最终权重排序
-        sorted_memories = sorted(memory_dict.items(), key=lambda x: x[1], reverse=True)
+        sorted_memories = sorted(memory_dict.items(), key=lambda x: x[1][0], reverse=True)
         self.ap.logger.info(f"加权合并完成，共召回{len(sorted_memories)}条记忆")
+        sorted_memories = [(mem,weight) for _, (weight,mem) in sorted_memories]
+        sorted_memories = sorted_memories[:self._memories_recall_once]
+        return sorted_memories
 
-        # 截取前N个结果
-        self._last_recall_memories = sorted_memories[:self._memories_recall_once]
-        result = [mem for mem, _ in sorted_memories[:self._memories_recall_once]]
-        for mem in result:
-            self.ap.logger.info(f"召回记忆: {mem}")
-        self.ap.logger.info(f"召回并选择了{len(result)}条记忆")
+    def _evalue_recall_result(self,input_tags:typing.List[str], sorted_memories:typing.List[tuple[MemoryItem,float]]) -> float:
+        """评估召回结果"""
+        input_vector = self._get_tag_vector(input_tags)
+        similarities = []
+        for mem, weight in sorted_memories:
+            tags = mem.tags()
+            similarity = self._cosine_similarity(input_vector, self._get_tag_vector(tags))
+            similarities.append(similarity)
+            self.ap.logger.info(f"评估记忆: {mem.summary()[:40]} 相似度: {similarity:.2f}")
+        # 计算质量分数
+        max_score = max(similarities)
+        avg_score = sum(similarities) / len(sorted_memories)
+        std_dev = np.std(similarities)
+        quality_score = 0.6*avg_score + 0.4*max_score - 0.2*std_dev
+        return quality_score
+
+    def _remove_low_value_tags(self, tags: typing.List[str]) -> typing.List[str]:
+        # 删除时间标签
+        time_tags = ["上午", "下午", "晚上", "早上", "清晨", "凌晨", "傍晚"]
+        result_tags = []
+        for i in tags:
+            if i not in time_tags:
+                result_tags.append(i)
+
+        tags = result_tags
+        result_tags = []
+        time_tags = ["今天", "昨天", "前天", "明天", "后天","大前天","大后天"]
+        for i in tags:
+            if i not in time_tags:
+                result_tags.append(i)
+
+        tags = result_tags
+        result_tags = []
+        time_tags = ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"]
+        for i in tags:
+            if i not in time_tags:
+                result_tags.append(i)
+
+        return result_tags
+
+    def secondary_recall(self, input_tags: typing.List[str]) -> typing.List[tuple[MemoryItem,float]]:
+        self.ap.logger.info(f"开始二次记忆召回 Tags: {', '.join(input_tags)}")
+        current_time = datetime.now()
+        input_vector = self._get_tag_vector(input_tags)
+        result_memories = []
+
+        SIMILARITY_THRESHOLD = 0.2
+
+        for summary, tags in self._long_term_memory:
+            # 提取元标签
+            (_,time_tags) = self._extract_time_tag(tags)
+            summary_time = datetime.fromtimestamp(self._backoff_timestamp)
+            if time_tags != "":
+                summary_time = self.get_time_form_str(time_tags)
+            else:
+                time_tags = summary_time.strftime("%Y-%m-%d %H:%M:%S")
+
+            similarity = self._cosine_similarity(input_vector, self._get_tag_vector(tags))
+
+            if similarity >= SIMILARITY_THRESHOLD:
+                result_mem = MemoryItem(self._format_memory_summary(current_time,summary_time,summary),tags)
+                result_memories.append((result_mem,similarity))
+
+        result_memories.sort(reverse=True, key=lambda x: x[1])
+        return result_memories[: self._memories_recall_once]
+
+    def _retrieve_related_memories(self, input_tags: typing.List[str]) -> typing.List[str]:
+        sorted_memories = self._recall_memories(input_tags)
+        for mem,_ in sorted_memories:
+            self.ap.logger.info(f"召回记忆: {mem.summary()}")
+        self.ap.logger.info(f"召回并选择了{len(sorted_memories)}条记忆")
+
+        QUALITY_THRESHOLD = 0.3
+        quality = self._evalue_recall_result(input_tags,sorted_memories)
+        self.ap.logger.info(f"召回结果质量评估: {quality:.2f}")
+
+        # 查看是否需要二次召回
+        need_secondary_recall = False
+        best_match = sorted_memories[0][0]
+        if len(sorted_memories) != 0 and len(input_tags) >= 5:
+            if quality < QUALITY_THRESHOLD:
+                # 二次召回
+                if best_match.summary().endswith(self.get_last_content()) and len(sorted_memories) >= 2:
+                    need_secondary_recall = True
+
+        if need_secondary_recall:
+            self.ap.logger.info(f"一次召回的最佳匹配：{best_match.summary()}")
+            self.ap.logger.info(f"召回结果质量为不佳，开始二次召回")
+            extend_len = 15 - len(input_tags)
+            extend_tags = self._remove_low_value_tags(input_tags)[:extend_len]
+            tags_set = set(extend_tags)
+            for i in input_tags:
+                if i not in tags_set:
+                    tags_set.add(i)
+            input_tags = list(tags_set)
+            self.ap.logger.info(f"二次召回 Tags: {', '.join(input_tags)}")
+            sorted_memories = self.secondary_recall(input_tags)
+            for mem,weight in sorted_memories:
+                self.ap.logger.info(f"二次召回记忆: {mem.summary()} 权重: {weight}")
+            self.ap.logger.info(f"二次召回并选择了{len(sorted_memories)}条记忆")
+            # 评估二次召回结果
+            quality = self._evalue_recall_result(input_tags,sorted_memories)
+            self.ap.logger.info(f"二次召回结果质量评估: {quality:.2f}")
+            if quality >= 0.2:
+                # 根据质量调整权重
+                factor = 1.0+quality
+                self.ap.logger.info("二次召回质量较好，重置记忆池")
+                self._clear_memories_session()
+                result = []
+                for mem,weight in sorted_memories:
+                    result.append((mem,min(weight*factor,0.3)))
+                sorted_memories = result
 
         # 更新记忆池
-        self._update_memories_session(sorted_memories[:self._memories_recall_once])
+        self.ap.logger.info(f"召回数量：{len(sorted_memories)}")
+        result = [(mem.summary(), weight) for mem, weight in sorted_memories]
+        self._last_recall_memories = result
+        self._update_memories_session(result)
 
         memories = self._get_memories_session()
 
@@ -855,7 +979,7 @@ class Memory:
             if time_tags != "":
                 summary_time = self.get_time_form_str(time_tags)
                 latest = self._format_memory_summary(datetime.now(), summary_time, latest[0])
-                self.ap.logger.info(f"没有找到任何记忆，添加最新的记忆：{latest[0]}")
+                self.ap.logger.info(f"没有找到任何记忆，添加最新的记忆：{latest}")
                 memories = [latest]
         return memories[: self._retrieve_top_n]
 
