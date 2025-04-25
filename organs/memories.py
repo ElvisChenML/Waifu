@@ -69,6 +69,7 @@ class Memory:
         self._memory_boost_rate = 0.15
         self._memory_base_growth = 0.2
         self._backoff_timestamp = 1745069038
+        self._tags_div = "====="
         # debug info
         self._last_recall_memories = []
         self._last_l0_recall_memories = []
@@ -118,41 +119,74 @@ class Memory:
         # 1、短期记忆转换长期记忆时：进行记忆总结
         # 2、对话提取记忆时：直接拼凑末尾对话
         if summary_flag:
-            memory = await self._generate_summary(conversations)
+            (memory,tags) = await self._generate_summary(conversations)
+            return (memory,tags)
         else:
-            memory = self.get_last_content(conversations, 10)
+            memory = self.get_last_content(conversations,10)
+            tags = await self._generate_tags(memory)
+            return (memory, tags)
 
-        # 使用TexSmart HTTP API生成词频统计并获取i18n信息和related信息
-        term_freq_counter, i18n_list, related_list = await self._text_analyzer.term_freq(memory)
+    def _get_tags_from_str_array(self,tag_word:str) ->typing.List[str]:
+        tag_word = tag_word.removeprefix("[").removesuffix("]").split(",")
+        result = []
+        for tag in tag_word:
+            t = tag.removeprefix("\"").removesuffix("\"")
+            result.append(t)
+        return result
 
-        # 从词频统计中提取前N个高频词及其i18n标签作为标签
-        top_n = self._summary_max_tags - len(i18n_list)
-        tags = []
+    async def _generate_tags(self,conversation:str) -> typing.List[str]:
+        user_prompt_tags = f"""提取关键词（数组输出）："{conversation}" """
+        output = await self._generator.return_string(user_prompt_tags)
+        self.ap.logger.info(f"词语： {conversation} 关键词： {output}")
+        return self._get_tags_from_str_array(output)
 
-        # # 提取前top_n个高频词
-        for word, freq in term_freq_counter.most_common(top_n):
-            tags.append(word)
-
-        # 加入i18n标签
-        tags.extend(i18n_list)
-
-        # 污染太严重，导致召回准确率不高
-        # 若为提取记忆，则将结构返回的related也加入tags
-        # if len(conversations) <= 1:
-        #     tags.extend(related_list)
-
-        return memory, tags
-
-    async def _generate_summary(self, conversations: typing.List[llm_entities.Message]) -> str:
+    async def _generate_summary(self, conversations: typing.List[llm_entities.Message]) -> tuple[str,typing.List[str]]:
         user_prompt_summary = ""
         if self._launcher_type == "person":
+            last = ""
+            if len(self._long_term_memory) != 0:
+                last = f"""背景信息(不可直接复述):"{self.get_latest_memory()}"\n\n"""
             _, conversations_str = self.get_conversations_str_for_person(conversations)
-            user_prompt_summary = f"""总结以下对话中的最重要细节和事件: "{conversations_str}"。将总结限制在200字以内。总结应使用中文书写，并以过去式书写。你的回答应仅包含总结。"""
+            stat_rule=f"""
+[状态追踪]
+    互动状态：
+        {self.user_name}正在进行的 持续动作
+        {self.assistant_name}正在进行的 持续动作
+    空间位置：
+        {self.user_name}的 位置
+        {self.assistant_name}的 位置
+    事件结束时的姿态：
+        {self.user_name}的 姿态
+        {self.assistant_name}的 姿态
+    关联物品:
+        {self.user_name}的 关联物品
+        {self.assistant_name}的 关联物品
+    重要事务：
+        {self.user_name}提出的 重要事件
+    附带具体规则的事务：
+    语义映射:
+        事件中的重要指代
+    {self._tags_div}
+    关键词（至多{self._summary_max_tags}个，数组输出）：
+            """
+            stat=f"你需要在总结的末尾包含状态追踪，规范如下：\n\n{stat_rule}\n"
+            user_prompt_summary = f"""基于先前提供的背景总结（仅用于上下文参考）和最新对话内容，生成独立的新总结：\n\n{last}当前对话:"{conversations_str}"\n\n将总结限制在200字以内。总结应使用中文书写，并以过去式书写。\n你的回答应仅包含总结。\n\n{stat}"""
         else:
+            stat_rule = f"""
+{self._tags_div}
+关键词（至多{self._summary_max_tags}个，数组输出）：
+"""
+            stat=f"你需要在总结的末尾包含核心关键词，规范如下：\n\n{stat_rule}\n"
             conversations_str = self.get_conversations_str_for_group(conversations)
-            user_prompt_summary = f"""总结以下对话中的最重要细节和事件: "{conversations_str}"。将总结限制在200字以内。总结应使用中文书写，其中@{self.bot_account_id}为对你说的话，或对你的动作，并以过去式书写。你的回答应仅包含总结。"""
+            user_prompt_summary = f"""基于最新对话内容，生成独立的新总结：\n\n当前对话:"{conversations_str}"。将总结限制在200字以内。总结应使用中文书写，以{self.bot_account_id}为视角，并以过去式书写。你的回答应仅包含总结。\n\n"""
 
-        return await self._generator.return_string(user_prompt_summary)
+        output = await self._generator.return_string(user_prompt_summary)
+        self.ap.logger.info(f"总结完成：{output}")
+        parts = output.split(self._tags_div)
+        summary = parts[0]
+        keywords = parts[-1].split("：")[-1]
+        tags = self._get_tags_from_str_array(keywords)
+        return (summary,tags)
 
     def current_time_str(self) -> str:
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -407,7 +441,7 @@ class Memory:
     def _format_memory_summary(self,curr:datetime,summary_time:datetime, summary: str) -> str:
         delta = curr - summary_time
         delta_hours = delta.total_seconds()/3600
-        return f"过去的事件发生于{summary_time}，距离现在已经过去{delta_hours:.1f}小时 {summary}"
+        return f"|{summary_time}|{delta_hours:.1f}小时前| {summary}"
 
     def _retrieve_related_l0_memories(self, input_tags: typing.List[str]) -> typing.List[tuple[float, MemoryItem]]:
         self.ap.logger.info(f"开始L0记忆召回 Tags: {', '.join(input_tags)}")
@@ -695,7 +729,7 @@ class Memory:
             # 根据记忆质量调整衰减率
             decay_rate = 0.85
             if old_score > 0.4:
-                decay_rate = 0.9
+                decay_rate = 0.87
             new_score = old_score * decay_rate
 
         # 步骤2：计算动态增量
@@ -706,8 +740,8 @@ class Memory:
                 # 计算剩余增长空间
                 headroom = self._memory_weight_max - old_score
                 # 动态增长率 = 基础因子 × 剩余空间的平方占比
-                base_growth = self._memory_base_growth * (1 + similarity * 0.5)
-                growth_rate = base_growth * (headroom ** 1.5 / self._memory_weight_max)
+                base_growth = self._memory_base_growth * (1 + similarity * 0.3)
+                growth_rate = base_growth * (headroom ** 1.0 / self._memory_weight_max)
                 new_score = old_score + growth_rate
                 updated[mem] = min(new_score,1.0)
 
@@ -716,13 +750,19 @@ class Memory:
             if mem in updated:
                 continue
             quality_factor = 0.8
-            if weight > good_memory_weight:
+            if weight >= good_memory_weight:
                 quality_factor = 1.8
-            elif weight > mid_memory_weight:
+            elif weight >= mid_memory_weight:
                 quality_factor = 1.4
 
             init_score = min(weight * quality_factor, self._memory_weight_max * 0.7)  # 设置上限
             updated[mem] = init_score
+
+        # 步骤4：合并旧记忆
+        for mem, old_score in self._memories_session:
+            if mem in updated:
+                continue
+            updated[mem] = updated.get(mem, old_score)
 
         # 步骤4：排序保留TopN
         sorted_mem = sorted(updated.items(), key=lambda x: -x[1])
@@ -852,6 +892,8 @@ class Memory:
 
     def _evalue_recall_result(self,input_tags:typing.List[str], sorted_memories:typing.List[tuple[MemoryItem,float]]) -> float:
         """评估召回结果"""
+        if len(sorted_memories) == 0:
+            return 0.0
         input_vector = self._get_tag_vector(input_tags)
         similarities = []
         for mem, weight in sorted_memories:
@@ -932,7 +974,7 @@ class Memory:
         if len(sorted_memories) != 0 and len(input_tags) >= 5:
             if quality < QUALITY_THRESHOLD:
                 # 二次召回
-                if best_match.summary().endswith(self.get_last_content()) and len(sorted_memories) >= 2:
+                if best_match.summary().endswith(self.get_latest_memory()) and len(sorted_memories) >= 2:
                     need_secondary_recall = True
 
         if need_secondary_recall:
@@ -946,15 +988,16 @@ class Memory:
                     tags_set.add(i)
             input_tags = list(tags_set)
             self.ap.logger.info(f"二次召回 Tags: {', '.join(input_tags)}")
-            sorted_memories = self.secondary_recall(input_tags)
-            for mem,weight in sorted_memories:
+            secondary_result = self.secondary_recall(input_tags)
+            for mem,weight in secondary_result:
                 self.ap.logger.info(f"二次召回记忆: {mem.summary()} 权重: {weight}")
-            self.ap.logger.info(f"二次召回并选择了{len(sorted_memories)}条记忆")
+            self.ap.logger.info(f"二次召回并选择了{len(secondary_result)}条记忆")
             # 评估二次召回结果
-            quality = self._evalue_recall_result(input_tags,sorted_memories)
+            quality = self._evalue_recall_result(input_tags,secondary_result)
             self.ap.logger.info(f"二次召回结果质量评估: {quality:.2f}")
             if quality >= 0.2:
                 # 根据质量调整权重
+                sorted_memories = secondary_result
                 factor = 1.0+quality
                 self.ap.logger.info("二次召回质量较好，重置记忆池")
                 self._clear_memories_session()
@@ -962,6 +1005,7 @@ class Memory:
                 for mem,weight in sorted_memories:
                     result.append((mem,min(weight*factor,0.3)))
                 sorted_memories = result
+
 
         # 更新记忆池
         self.ap.logger.info(f"召回数量：{len(sorted_memories)}")
@@ -971,16 +1015,16 @@ class Memory:
 
         memories = self._get_memories_session()
 
-        # 如果没找到任何记忆，就添加最新的记忆维持会话连续
-        if len(memories) == 0 and len(self._long_term_memory) != 0:
+        # 强制添加最新记忆保持连续
+        if len(self._long_term_memory) != 0:
             latest = self._long_term_memory[-1]
             tags = latest[1]
             time_tags = self._extract_time_tag(tags)[1]
             if time_tags != "":
                 summary_time = self.get_time_form_str(time_tags)
                 latest = self._format_memory_summary(datetime.now(), summary_time, latest[0])
-                self.ap.logger.info(f"没有找到任何记忆，添加最新的记忆：{latest}")
-                memories = [latest]
+                if latest not in memories:
+                    memories.append(latest)
         return memories[: self._retrieve_top_n]
 
     async def save_memory(self, role: str, content: str):
