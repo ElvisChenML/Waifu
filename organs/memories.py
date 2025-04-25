@@ -71,6 +71,7 @@ class Memory:
         self._backoff_timestamp = 1745069038
         self._tags_div = "====="
         # debug info
+        self._recall_keywords = []
         self._last_recall_memories = []
         self._last_l0_recall_memories = []
         self._last_l1_recall_memories = []
@@ -373,7 +374,9 @@ class Memory:
         memories = []
         for summary,weight in self._last_recall_memories:
             memories.append(f"权重：{weight:.2f} 记忆：{summary}")
-        return "\n\n".join(memories)
+        msg = "\n\n".join(memories)
+        keywords = ",".join(self._recall_keywords)
+        return f"关键词：{keywords}\n\n{msg}"
 
     def get_last_l0_recall_memories(self) -> str:
         memories = []
@@ -806,6 +809,7 @@ class Memory:
 
     def _recall_memories(self,input_tags:typing.List[str]) -> typing.List[tuple[MemoryItem,float]]:
         self.ap.logger.info(f"开始多级记忆召回 Tags: {', '.join(input_tags)}")
+        self._recall_keywords = input_tags
 
         # 获取各层记忆结果（带权重）
         l1_results =[]
