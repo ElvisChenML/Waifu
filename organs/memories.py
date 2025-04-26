@@ -255,7 +255,7 @@ class Memory:
             tags = list(set(tags))
             if len(self.short_term_memory) > self._memory_batch_size:
                 self.short_term_memory = self.short_term_memory[self._memory_batch_size :]
-            tags.append("DATETIME: " + self.current_time_str())
+            tags.append("DATETIME:" + self.current_time_str())
             self._add_long_term_memory(summary, tags)
             self._save_long_term_memory_to_file()
             self._save_short_term_memory_to_file()
@@ -386,15 +386,15 @@ class Memory:
 
     def _extract_time_tag(self, tags: typing.List[str]) -> tuple[int, str]:
         for i in range(len(tags)):
-            if tags[i].startswith("DATETIME: "):
-                time_tags = tags[i].replace("DATETIME: ", "")
+            if tags[i].startswith("DATETIME:"):
+                time_tags = tags[i].replace("DATETIME:", "")
                 return (i, time_tags)
         return (-1,"")
 
     def _extract_priority_tags(self, tags: typing.List[str]) -> tuple[int, str]:
         for i in range(len(tags)):
-            if tags[i].startswith("PRIORITY: "):
-                priority_tags = tags[i].replace("PRIORITY: ", "")
+            if tags[i].startswith("PRIORITY:"):
+                priority_tags = tags[i].replace("PRIORITY:", "")
                 return (i, priority_tags)
         return (-1,"")
 
