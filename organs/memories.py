@@ -6,13 +6,14 @@ import re
 import math
 from datetime import datetime, timedelta
 from pkg.core import app
-from collections import Counter
+from collections import Counter,defaultdict
 from plugins.Waifu.cells.text_analyzer import TextAnalyzer
 from plugins.Waifu.cells.generator import Generator
 from pkg.plugin.context import APIHost
 from pkg.provider import entities as llm_entities
 from plugins.Waifu.cells.config import ConfigManager
 from plugins.Waifu.organs.memory_item import MemoryItem
+from plugins.Waifu.organs.lru_cache import LRUCache
 
 
 # 多级召回记忆系统
@@ -50,7 +51,7 @@ class Memory:
         self._short_term_memory_size = 100
         self._memory_batch_size = 50
         self._retrieve_top_n = 5
-        self._summary_max_tags = 50
+        self._summary_max_tags = 30
         self._long_term_memory_file = f"data/plugins/Waifu/data/memories_{launcher_id}.json"
         self._conversations_file = f"data/plugins/Waifu/data/conversations_{launcher_id}.log"
         self._short_term_memory_file = f"data/plugins/Waifu/data/short_term_memory_{launcher_id}.json"
@@ -58,6 +59,7 @@ class Memory:
         self._status_file = ""
         self._thinking_mode_flag = True
         self._already_repeat = set()
+        self._meta_tag_count = 5
         self._load_long_term_memory_from_file()
         self._load_short_term_memory_from_file()
         self._has_preset = True
@@ -70,6 +72,7 @@ class Memory:
         self._memory_base_growth = 0.2
         self._backoff_timestamp = 1745069038
         self._tags_div = "====="
+        self.split_word_cache = LRUCache(100000)
         # debug info
         self._recall_keywords = []
         self._last_recall_memories = []
@@ -115,6 +118,8 @@ class Memory:
         else:
             self._has_preset = False
 
+        self._adjust_long_term_memory_tags()
+
     async def _tag_conversations(self, conversations: typing.List[llm_entities.Message], summary_flag: bool) -> typing.Tuple[str, typing.List[str]]:
         # 生成Tags：
         # 1、短期记忆转换长期记忆时：进行记忆总结
@@ -122,24 +127,37 @@ class Memory:
         if summary_flag:
             (memory,tags) = await self._generate_summary(conversations)
             return (memory,tags)
-        else:
-            memory = self.get_last_content(conversations,10)
-            tags = await self._generate_tags(memory)
-            return (memory, tags)
+
+        memory = self.get_last_content(conversations,10)
+        tags = await self._generate_tags(memory)
+        return (memory, tags)
+
+    def _remove_prefix_suffix_from_tag(self,tag:str) ->str:
+        t = tag.removeprefix("\"").removesuffix("\"").removeprefix("[").removesuffix("]")
+        return t
 
     def _get_tags_from_str_array(self,tag_word:str) ->typing.List[str]:
         tag_word = tag_word.removeprefix("[").removesuffix("]").split(",")
         result = []
         for tag in tag_word:
-            t = tag.removeprefix("\"").removesuffix("\"")
-            result.append(t)
+            result.append(self._remove_prefix_suffix_from_tag(tag))
         return result
 
     async def _generate_tags(self,conversation:str) -> typing.List[str]:
-        user_prompt_tags = f"""提取关键词（数组输出）："{conversation}" """
+        conversation = conversation.replace("{","").replace("}","")
+        tags = self.split_word_cache.get(conversation)
+        if tags != None:
+            return tags
+        user_prompt_tags = f"""
+进行搜索场景分词："{conversation}"
+1. 结果只包含核心实体和关键动作
+2. 输出只包含分词数组结果
+"""
         output = await self._generator.return_string(user_prompt_tags)
-        self.ap.logger.info(f"词语： {conversation} 关键词： {output}")
-        return self._get_tags_from_str_array(output)
+        self.ap.logger.info(f"词语： {conversation} 分词： {output}")
+        tags = self._get_tags_from_str_array(output)
+        self.split_word_cache.put(conversation,tags)
+        return tags
 
     async def _generate_summary(self, conversations: typing.List[llm_entities.Message]) -> tuple[str,typing.List[str]]:
         user_prompt_summary = ""
@@ -165,17 +183,31 @@ class Memory:
     重要事务：
         {self.user_name}提出的 重要事件
     附带具体规则的事务：
-    语义映射:
-        事件中的重要指代
+    对象指代:
+        对象实际指
     {self._tags_div}
-    关键词（至多{self._summary_max_tags}个，数组输出）：
+    关键词规则：
+    1. 固定为{self._summary_max_tags}个
+    2. 按重要性排序
+    3. 拆分复合词
+    4. 尽可能使用对话原词
+    5. 使用数组的形式输出到以下位置：
+
+    关键词：
             """
-            stat=f"你需要在总结的末尾包含状态追踪，规范如下：\n\n{stat_rule}\n"
+            stat=f"你需要在总结的末尾包含状态追踪和关键词，规范如下：\n\n{stat_rule}\n"
             user_prompt_summary = f"""基于先前提供的背景总结（仅用于上下文参考）和最新对话内容，生成独立的新总结：\n\n{last}当前对话:"{conversations_str}"\n\n将总结限制在200字以内。总结应使用中文书写，并以过去式书写。\n你的回答应仅包含总结。\n\n{stat}"""
         else:
             stat_rule = f"""
 {self._tags_div}
-关键词（至多{self._summary_max_tags}个，数组输出）：
+关键词规则：
+1. 固定为{self._summary_max_tags}个
+2. 按重要性排序
+3. 拆分复合词
+4. 尽可能使用对话原词
+5. 使用数组的形式输出到以下位置：
+
+关键词：
 """
             stat=f"你需要在总结的末尾包含核心关键词，规范如下：\n\n{stat_rule}\n"
             conversations_str = self.get_conversations_str_for_group(conversations)
@@ -187,6 +219,8 @@ class Memory:
         summary = parts[0]
         keywords = parts[-1].split("：")[-1]
         tags = self._get_tags_from_str_array(keywords)
+        if len(tags) > self._summary_max_tags:
+            tags = tags[:self._summary_max_tags]
         return (summary,tags)
 
     def current_time_str(self) -> str:
@@ -380,48 +414,54 @@ class Memory:
 
     def get_last_l0_recall_memories(self) -> str:
         memories = []
-        for weight, similarity, summary in self._last_l0_recall_memories:
-            memories.append(f"L0权重：{weight:.2f} 相似度：{similarity:.2f} 记忆：{summary}")
+        for weight, similarity, summary,tags in self._last_l0_recall_memories:
+            tags_str = ",".join(tags)
+            memories.append(f"L0权重：{weight:.2f} 相似度：{similarity:.2f} 记忆：{summary} 标签:[{tags_str}]")
         msg = "\n\n".join(memories)
         self.ap.logger.info(f"召回L0记忆：\n\n{msg}")
         return "已打印"
 
     def get_last_l1_recall_memories(self) -> str:
         memories = []
-        for weight, similarity, summary in self._last_l1_recall_memories:
-            memories.append(f"L1权重：{weight:.2f} 相似度：{similarity:.2f} 记忆：{summary}")
+        for weight, similarity, summary,tags in self._last_l1_recall_memories:
+            tags_str = ",".join(tags)
+            memories.append(f"L1权重：{weight:.2f} 相似度：{similarity:.2f} 记忆：{summary} 标签:[{tags_str}]")
         msg = "\n\n".join(memories)
         self.ap.logger.info(f"召回L1记忆：\n\n{msg}")
         return "已打印"
 
     def get_last_l2_recall_memories(self) -> str:
         memories = []
-        for weight,jaccard, similarity, summary in self._last_l2_recall_memories:
-            memories.append(f"L2权重：{weight:.2f} Jaccard: {jaccard:.2f} 相似度：{similarity:.2f} 记忆：{summary}")
+        for weight,jaccard, similarity, summary,tags in self._last_l2_recall_memories:
+            tags_str = ",".join(tags)
+            memories.append(f"L2权重：{weight:.2f} Jaccard: {jaccard:.2f} 相似度：{similarity:.2f} 记忆：{summary} 标签:[{tags_str}]")
         msg = "\n\n".join(memories)
         self.ap.logger.info(f"召回L2记忆：\n\n{msg}")
         return "已打印"
 
     def get_last_l3_recall_memories(self) -> str:
         memories = []
-        for weight, jaccard, similarity, summary in self._last_l3_recall_memories:
-            memories.append(f"L3权重：{weight:.2f} Jaccard: {jaccard:.2f} 相似度：{similarity:.2f} 记忆：{summary}")
+        for weight, jaccard, similarity, summary,tags in self._last_l3_recall_memories:
+            tags_str = ",".join(tags)
+            memories.append(f"L3权重：{weight:.2f} Jaccard: {jaccard:.2f} 相似度：{similarity:.2f} 记忆：{summary} 标签:[{tags_str}]")
         msg = "\n\n".join(memories)
         self.ap.logger.info(f"召回L3记忆：\n\n{msg}")
         return "已打印"
 
     def get_last_l4_recall_memories(self) -> str:
         memories = []
-        for weight, similarity, summary in self._last_l4_recall_memories:
-            memories.append(f"L4权重：{weight:.2f} 相似度：{similarity:.2f} 记忆：{summary}")
+        for weight, similarity, summary,tags in self._last_l4_recall_memories:
+            tags_str = ",".join(tags)
+            memories.append(f"L4权重：{weight:.2f} 相似度：{similarity:.2f} 记忆：{summary} 标签:[{tags_str}]")
         msg = "\n\n".join(memories)
         self.ap.logger.info(f"召回L4记忆：\n\n{msg}")
         return "已打印"
 
     def get_last_l5_recall_memories(self) -> str:
         memories = []
-        for weight, similarity, summary in self._last_l5_recall_memories:
-            memories.append(f"L5权重：{weight:.2f} 相似度：{similarity:.2f} 记忆：{summary}")
+        for weight, similarity, summary,tags in self._last_l5_recall_memories:
+            tags_str = ",".join(tags)
+            memories.append(f"L5权重：{weight:.2f} 相似度：{similarity:.2f} 记忆：{summary} 标签:[{tags_str}]")
         msg = "\n\n".join(memories)
         self.ap.logger.info(f"召回L5记忆：\n\n{msg}")
         return "已打印"
@@ -456,7 +496,8 @@ class Memory:
         # L0配置（0-24小时）
         DECAY_RATE_PER_MIN = 0.001  # 每分钟衰减率（24小时后剩余≈exp(-0.002 * 1440)=0.057）
         MAX_HOURS = 24
-        SIMILARITY_FLOOR = 0.12  # 最低相似度门槛
+        MIN_SIMILARITY = 0.19  # 硬性过滤低质量内容
+        COMBO_THRESHOLD = 0.25  # 组合权重门槛
 
         for summary, tags in self._long_term_memory:
             # 提取元标签
@@ -477,16 +518,21 @@ class Memory:
             delta_min = delta.total_seconds() / 60
             time_weight = math.exp(-DECAY_RATE_PER_MIN * delta_min)
             similarity = self._cosine_similarity(input_vector, self._get_tag_vector(tags))
-            tag_boost = min(1.5, 0.5 + 0.1*len(tags))
-            recency_boost = max(1.2 - 0.01*delta_min,1.0)
-            weight = similarity * time_weight * tag_boost * recency_boost
+            tag_boost = 0.6 + 0.05*min(len(tags),20) - 0.02*abs(len(tags)-15)  # 当标签数=15时获得最大加成
+            recency_boost = max(1.3 - 0.015*delta_min, 1.0)  # 衰减斜率降低
+            weight = similarity * (time_weight**0.8) * tag_boost * recency_boost  # 添加指数平滑
+
+            # 新增命中数计算
+            input_set = set(input_tags)
+            mem_tags = set(self._get_real_tags(tags))
+            hits = len(input_set & mem_tags)  # 实际命中标签数
 
             # 准入规则
-            if similarity > SIMILARITY_FLOOR:
+            if hits >= 3 and similarity >= MIN_SIMILARITY and weight >= COMBO_THRESHOLD:
                 result_mem = MemoryItem(self._format_memory_summary(current_time,summary_time,summary),tags)
                 l0_memories.append((weight,result_mem))
 
-            self._last_l0_recall_memories.append((weight, similarity, summary[:40]))
+            self._last_l0_recall_memories.append((weight, similarity, summary[:40],tags))
 
 
         l0_memories.sort(reverse=True, key=lambda x: x[0])
@@ -518,16 +564,20 @@ class Memory:
                 continue
 
             # 时间敏感度检测
-            time_weight = math.exp(-DECAY_RATE_PER_HOUR * delta_hours)
+            time_weight = math.exp(-DECAY_RATE_PER_HOUR * (delta_hours**1.2))  # 非线性衰减
             similarity = self._cosine_similarity(input_vector, self._get_tag_vector(tags))
-            weight = similarity * time_weight
+            # 新增命中数计算
+            input_set = set(input_tags)
+            mem_tags = set(self._get_real_tags(tags))
+            hits = len(input_set & mem_tags)
+            weight = similarity * time_weight* (1.0 + 0.03*hits)
 
-            self._last_l1_recall_memories.append((weight, similarity, summary[:40]))
+            self._last_l1_recall_memories.append((weight, similarity, summary[:40],tags))
 
             # 动态准入（随时间放宽阈值）
             hour_factor = (delta_hours - MIN_HOURS) / (MAX_HOURS - MIN_HOURS)  # 0~1
-            dynamic_th = 0.16 * (1 - 0.3 * hour_factor)
-            if weight > dynamic_th:
+            dynamic_th = 0.22 * (1 - 0.2 * hour_factor)  # 基础阈值从0.16提升到0.22
+            if (hits >=3) and weight > dynamic_th:
                 result_mem = MemoryItem(self._format_memory_summary(current_time,summary_time,summary),tags)
                 l1_memories.append((weight, result_mem))
 
@@ -542,9 +592,9 @@ class Memory:
 
         # L2配置（3-7天）
         TIME_DECAY_RATE = 0.0001  # 小时级衰减
-        SIMILARITY_THRESHOLD = 0.12
+        SIMILARITY_THRESHOLD = 0.35
         MIN_DAYS, MAX_DAYS = 2.4, 7
-        TOPIC_WEIGHT = 0.5
+        TOPIC_WEIGHT = 0.7
 
         for summary, tags in self._long_term_memory:
             # 提取元标签
@@ -571,16 +621,21 @@ class Memory:
             delta_hours = (current_time - summary_time).total_seconds() / 3600
             time_weight = math.exp(-TIME_DECAY_RATE * delta_hours)
             similarity = self._cosine_similarity(input_vector, self._get_tag_vector(tags))
+            # 新增命中数计算
+            input_set = set(input_tags)
+            mem_tags = set(self._get_real_tags(tags))
+            hits = len(input_set & mem_tags)
 
-            weight = similarity * time_weight * (0.5 + TOPIC_WEIGHT * jaccard)
+            # 修改权重公式
+            weight = similarity * (time_weight**0.6) * (0.4 + TOPIC_WEIGHT * jaccard) * (1.0 + 0.02*hits)
 
-            self._last_l2_recall_memories.append((weight,jaccard, similarity, summary[:40]))
+            self._last_l2_recall_memories.append((weight,jaccard, similarity, summary[:40],tags))
 
-            if weight >= (SIMILARITY_THRESHOLD - 0.02):
+            if (hits >=3) and weight >= (SIMILARITY_THRESHOLD - 0.02):
                 weight *= 1.05  # 边缘内容提升5%
 
             # 分级准入
-            if weight >= SIMILARITY_THRESHOLD or (jaccard >= 0.02 and similarity >= 0.12):
+            if weight >= SIMILARITY_THRESHOLD or (jaccard >= 0.08 and similarity >= 0.22):
                 result_mem = MemoryItem(self._format_memory_summary(current_time,summary_time,summary),tags)
                 l2_memories.append((weight, result_mem))
 
@@ -619,12 +674,20 @@ class Memory:
 
             similarity = self._cosine_similarity(input_vector, self._get_tag_vector(tags))
             time_weight = math.exp(-DECAY_RATE * delta_days)
-            weight = (similarity * 0.7 + jaccard * 0.3) * time_weight
+            # 新增命中数计算
+            input_set = set(input_tags)
+            mem_tags = set(self._get_real_tags(tags))
+            hits = len(input_set & mem_tags)
+            # 修改权重计算
+            weight = (similarity * 0.6 + jaccard * 0.4) * (time_weight**0.5) * (1.0 + 0.015*hits)
 
-            self._last_l3_recall_memories.append((weight, jaccard, similarity, summary[:40]))
+            if delta_days > 15:
+                weight *= 1.2 - 0.01*(delta_days-15)
+
+            self._last_l3_recall_memories.append((weight, jaccard, similarity, summary[:40],tags))
 
             # 准入规则
-            if weight >= SIMILARITY_THRESHOLD and jaccard >= JACCARD_FLOOR:
+            if (hits >=5) and weight >= SIMILARITY_THRESHOLD and jaccard >= JACCARD_FLOOR:
                 result_mem = MemoryItem(self._format_memory_summary(current_time,summary_time,summary),tags)
                 l3_memories.append((weight, result_mem))
 
@@ -639,7 +702,7 @@ class Memory:
 
         # L4配置（30天到365天）
         DECAY_RATE = 0.00005  # 超低衰减率
-        EMERGENCY_THRESHOLD = 0.35
+        EMERGENCY_THRESHOLD = 0.45
         SIMILARITY_THRESHOLD = 0.18
         MIN_DAYS = 24
         MAX_DAYS = 365
@@ -658,17 +721,22 @@ class Memory:
                 continue
 
             # 优化衰减公式（添加非线性因子）
-            decay_factor = 1 + 0.5 * (delta_days//180)  # 每半年加速衰减50%
+            decay_factor = 1 + 0.7 * (delta_days//90) # 每季度衰减加速70%
             time_weight = math.exp(-DECAY_RATE * delta_days * decay_factor)
 
             # 纯语义匹配
             similarity = self._cosine_similarity(input_vector, self._get_tag_vector(tags))
             weight = similarity * time_weight
 
-            self._last_l4_recall_memories.append((weight, similarity, summary[:40]))
+            self._last_l4_recall_memories.append((weight, similarity, summary[:40],tags))
+
+            # 新增命中数计算
+            input_set = set(input_tags)
+            mem_tags = set(self._get_real_tags(tags))
+            hits = len(input_set & mem_tags)
 
             # 紧急通道 + 正常准入
-            if weight >= SIMILARITY_THRESHOLD or similarity >= EMERGENCY_THRESHOLD and len(tags) >= 5:
+            if hits >= 5 and weight >= SIMILARITY_THRESHOLD or similarity >= EMERGENCY_THRESHOLD and len(tags) >= 5:
                 result_mem = MemoryItem(self._format_memory_summary(current_time,summary_time,summary),tags)
                 l4_memories.append((weight, result_mem))
 
@@ -685,7 +753,7 @@ class Memory:
 
         # L5配置（1年以上记忆）
         DECAY_RATE = 0.00001  # 极低衰减率（十年后保留≈e^(-0.00001 * 3650)=0.964）
-        SIMILARITY_THRESHOLD = 0.30  # 高精度阈值
+        SIMILARITY_THRESHOLD = 0.38  # 高精度阈值
         MIN_DAYS = 365  # 1年+
 
         for summary, tags in self._long_term_memory:
@@ -704,12 +772,19 @@ class Memory:
             # 纯语义匹配（可扩展点：未来在此添加事件触发逻辑）
             similarity = self._cosine_similarity(input_vector, self._get_tag_vector(tags))
             time_weight = math.exp(-DECAY_RATE * delta_days)
+            # 新增命中数计算
+            input_set = set(input_tags)
+            mem_tags = set(self._get_real_tags(tags))
+            hits = len(input_set & mem_tags)
             weight = similarity * time_weight
 
-            self._last_l5_recall_memories.append((weight, similarity, summary[:40]))
+            if delta_days > 730:  # 2年以上的记忆
+                weight *= 1.3  # 给予历史记忆加成
+
+            self._last_l5_recall_memories.append((weight, similarity, summary[:40],tags))
 
             # 准入规则（可扩展点：未来添加人工审核接口）
-            if weight >= SIMILARITY_THRESHOLD:
+            if hits >= 5 and weight >= SIMILARITY_THRESHOLD:
                 result_mem = MemoryItem(self._format_memory_summary(current_time,summary_time,summary),tags)
                 l5_memories.append((weight,result_mem))
 
@@ -724,19 +799,23 @@ class Memory:
         """更新记忆池"""
         self.ap.logger.info(f"更新记忆池，当前内容：{self.get_memories_session()}")
         self.ap.logger.info(f"新记忆数量：{len(new_memories)}")
-        good_memory_weight = 0.3
-        mid_memory_weight = 0.2
+        good_memory_weight = 0.7
+        mid_memory_weight = 0.4
 
+        updated = {}
         # 步骤1：衰减旧记忆权重
         for mem, old_score in self._memories_session:
             # 根据记忆质量调整衰减率
-            decay_rate = 0.85
-            if old_score > 0.4:
-                decay_rate = 0.87
+            decay_rate = 0.6
+            if old_score >= good_memory_weight:
+                decay_rate = 0.9
+            elif old_score >= mid_memory_weight:
+                decay_rate = 0.8
             new_score = old_score * decay_rate
+            updated[mem] = new_score
+
 
         # 步骤2：计算动态增量
-        updated = {}
         for mem, old_score in self._memories_session:
             if mem in [k for k in new_memories]:
                 similarity = new_memories[mem]
@@ -752,13 +831,8 @@ class Memory:
         for mem,weight in new_memories:
             if mem in updated:
                 continue
-            quality_factor = 0.8
-            if weight >= good_memory_weight:
-                quality_factor = 1.8
-            elif weight >= mid_memory_weight:
-                quality_factor = 1.4
 
-            init_score = min(weight * quality_factor, self._memory_weight_max * 0.7)  # 设置上限
+            init_score = min(weight, self._memory_weight_max * 0.8)  # 设置上限
             updated[mem] = init_score
 
         # 步骤4：合并旧记忆
@@ -771,7 +845,7 @@ class Memory:
         sorted_mem = sorted(updated.items(), key=lambda x: -x[1])
         sorted_mem = sorted_mem[:self._memories_session_capacity]
         # 过滤噪音
-        sorted_mem = [(mem, score) for mem, score in sorted_mem if score >= 0.14]
+        sorted_mem = [(mem, score) for mem, score in sorted_mem if score >= 0.2]
 
         self._memories_session = sorted_mem
 
@@ -806,6 +880,29 @@ class Memory:
         for mem, score in self._memories_session:
             memories.append(f"记忆：{mem} 权重：{score:.2f}")
         return "\n\n".join(memories)
+
+    def _normalize_weight(self,raw_weight, max_weight):
+        compressed = math.log1p(raw_weight * 10)  # 对数压缩增强小值差异
+        return round(compressed / math.log1p(max_weight * 10), 2)
+
+    def _get_time_window(self,days:int)->int:
+        if days <= 1:
+            return days
+        sorted_level = [
+            (1,2),
+            (3,3),
+            (7,4),
+            (30,5),
+            (90,6),
+            (180,7),
+            (360,8)
+        ]
+        sorted_level.reverse()
+        for day_limit,level in sorted_level:
+            if days >= day_limit:
+                return level
+        self.ap.logger.error(f"时间窗口出错 {days}天")
+        return -1
 
     def _recall_memories(self,input_tags:typing.List[str]) -> typing.List[tuple[MemoryItem,float]]:
         self.ap.logger.info(f"开始多级记忆召回 Tags: {', '.join(input_tags)}")
@@ -847,45 +944,42 @@ class Memory:
             current_recall_count += len(l5_results)
 
         # 构建带权记忆池
+        self.ap.logger.info("开始合并记忆")
         weighted_memories:typing.List[tuple[float,MemoryItem]] = []
+        weighted_memories.extend(l0_results)
+        weighted_memories.extend(l1_results)
+        weighted_memories.extend(l2_results)
+        weighted_memories.extend(l3_results)
+        weighted_memories.extend(l4_results)
+        weighted_memories.extend(l5_results)
 
-        # 处理L5记忆
-        for weight, summary in l5_results:
-            final_weight = weight * 1.5
-            weighted_memories.append((final_weight , summary))
+        self.ap.logger.info("计算时间窗口")
+        current_time = datetime.now()
+        time_group = defaultdict(list)
+        for weight, memory in weighted_memories:
+            delta_days = (current_time - memory.time()).days
+            time_window = self._get_time_window(delta_days)  # 映射到预设时间窗口
+            time_group[time_window].append((weight,memory))
 
-        # 处理L4记忆
-        for weight, summary in l4_results:
-            final_weight = weight * 1.3
-            weighted_memories.append((final_weight , summary))
+        self.ap.logger.info("计算时间窗口最大值权重")
+        time_group_max = {}
+        for time_window,memories in time_group.items():
+            if len(memories) != 0:
+                time_group_max[time_window] = max([w for (w,_) in memories])
 
-        # 处理L3记忆
-        for weight, summary in l3_results:
-            final_weight = weight * 1.1
-            weighted_memories.append((final_weight , summary))
 
-        # 处理L2记忆
-        for weight, summary in l2_results:
-            final_weight = weight
-            weighted_memories.append((final_weight, summary))
-
-        # 处理L1记忆
-        for weight, summary in l1_results:
-            final_weight = weight
-            weighted_memories.append((final_weight, summary))
-
-        # 处理L0记忆
-        for weight, summary in l0_results:
-            # 限制L0记忆权重
-            final_weight = min(weight,0.2)
-            weighted_memories.append((final_weight, summary))
-
-        # 记忆去重（保留最高权重）
+        self.ap.logger.info("结果归一化")
         memory_dict:dict[str,tuple[float,MemoryItem]] = {}
-        for weight, mem in weighted_memories:
-            key = mem.summary()
-            if key not in memory_dict or weight > memory_dict[key][0]:
-                memory_dict[key] = (weight,mem)
+        for time_window,memories in time_group.items():
+            for (w,mem) in memories:
+                delta_days = (current_time - mem.time()).days
+                time_window = self._get_time_window(delta_days)
+                max_weight = time_group_max[time_window]
+                final_weight = self._normalize_weight(w,max_weight)
+                key = mem.summary()
+                if key not in memory_dict or final_weight > memory_dict[key][0]:
+                    memory_dict[key] = (final_weight,mem)
+
 
         # 按最终权重排序
         sorted_memories = sorted(memory_dict.items(), key=lambda x: x[1][0], reverse=True)
@@ -968,14 +1062,15 @@ class Memory:
             self.ap.logger.info(f"召回记忆: {mem.summary()}")
         self.ap.logger.info(f"召回并选择了{len(sorted_memories)}条记忆")
 
-        QUALITY_THRESHOLD = 0.3
+        QUALITY_THRESHOLD = 0.4
         quality = self._evalue_recall_result(input_tags,sorted_memories)
         self.ap.logger.info(f"召回结果质量评估: {quality:.2f}")
 
         # 查看是否需要二次召回
         need_secondary_recall = False
-        best_match = sorted_memories[0][0]
+        best_match = None
         if len(sorted_memories) != 0 and len(input_tags) >= 5:
+            best_match = sorted_memories[0][0]
             if quality < QUALITY_THRESHOLD:
                 # 二次召回
                 if best_match.summary().endswith(self.get_latest_memory()) and len(sorted_memories) >= 2:
@@ -1109,6 +1204,33 @@ class Memory:
         except Exception as e:
             self.ap.logger.error(f"Error saving memory to file '{self._short_term_memory_file}': {e}")
 
+    def _adjust_long_term_memory_tags(self):
+        tag_cnt = self._summary_max_tags + self._meta_tag_count
+        for i in range(len(self._long_term_memory)):
+            (mem,tags) = self._long_term_memory[i]
+            if len(tags) > tag_cnt:
+                time_tag = self._extract_time_tag(tags)[1]
+                num = len(tags) - tag_cnt
+                tags = tags[:tag_cnt]
+                find_time_tag = self._extract_time_tag(tags)[1]
+                if find_time_tag == "" and time_tag != "":
+                    tags.append(time_tag)
+                self._long_term_memory[i] = (mem,tags)
+                msg = ",".join(tags)
+                self.ap.logger.info(f"截断记忆标签： {mem} 总数量:{tag_cnt} 截断数量:{num} 标签：{msg}")
+            elif len(tags) < tag_cnt:
+                num = tag_cnt - len(tags)
+                for j in range(num):
+                    tags.append(f"PADDING: {j}")
+                self._long_term_memory[i] = (mem,tags)
+                msg = ",".join(tags)
+                self.ap.logger.info(f"填充记忆标签： {mem} 总数量:{tag_cnt} 填充数量:{num} 标签: {msg}")
+
+    def _trim_for_tags(self,tags:typing.List[str]) -> typing.List[str]:
+        for i in range(len(tags)):
+            tags[i] = self._remove_prefix_suffix_from_tag(tags[i])
+        return tags
+
     def _load_long_term_memory_from_file(self):
         try:
             with open(self._long_term_memory_file, "r", encoding="utf-8") as file:
@@ -1118,7 +1240,7 @@ class Memory:
                     return
 
                 data = json.loads(file_content)
-                self._long_term_memory = [(item["summary"], item["tags"]) for item in data["long_term"]]
+                self._long_term_memory = [(item["summary"], self._trim_for_tags(item["tags"])) for item in data["long_term"]]
                 self._tags_index = data["tags_index"]
         except FileNotFoundError:
             self.ap.logger.warning(f"Memory file '{self._long_term_memory_file}' not found. Starting with empty memory.")

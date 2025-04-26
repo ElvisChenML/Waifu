@@ -22,3 +22,6 @@ class MemoryItem:
 
     def summary(self) -> str:
         return self._summary
+
+    def time(self)->datetime:
+        return self._created_time
