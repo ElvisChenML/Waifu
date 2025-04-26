@@ -71,7 +71,7 @@ class Memory:
         self._memory_boost_rate = 0.15
         self._memory_base_growth = 0.2
         self._backoff_timestamp = 1745069038
-        self._tags_div = "====="
+        self._tags_div = "关键词："
         self.split_word_cache = LRUCache(100000)
         # debug info
         self._recall_keywords = []
@@ -133,7 +133,7 @@ class Memory:
         return (memory, tags)
 
     def _remove_prefix_suffix_from_tag(self,tag:str) ->str:
-        t = tag.removeprefix("\"").removesuffix("\"").removeprefix("[").removesuffix("]")
+        t = tag.replace("\"","").replace("\"","").replace("[","").replace("]","").replace(" ","").replace("\n","")
         return t
 
     def _get_tags_from_str_array(self,tag_word:str) ->typing.List[str]:
@@ -166,7 +166,19 @@ class Memory:
             if len(self._long_term_memory) != 0:
                 last = f"""背景信息(不可直接复述):"{self.get_latest_memory()}"\n\n"""
             _, conversations_str = self.get_conversations_str_for_person(conversations)
-            stat_rule=f"""
+            prompt_rule=f"""
+基于先前提供的背景总结（仅用于上下文参考）和最新对话内容，生成独立的新总结：
+
+背景总结："{last}"
+
+当前对话:"{conversations_str}"
+
+你的回答应仅包含总结。
+
+将总结限制在200字以内。总结应使用中文书写，并以过去式书写。
+
+你需要在总结的末尾包含状态追踪和关键词，规范如下：
+
 [状态追踪]
     互动状态：
         {self.user_name}正在进行的 持续动作
@@ -174,50 +186,57 @@ class Memory:
     空间位置：
         {self.user_name}的 位置
         {self.assistant_name}的 位置
-    事件结束时的姿态：
-        {self.user_name}的 姿态
-        {self.assistant_name}的 姿态
+    事件结束时的动作姿态：
+        {self.user_name}的 动作姿态
+        {self.assistant_name}的 动作姿态
     关联物品:
         {self.user_name}的 关联物品
         {self.assistant_name}的 关联物品
     重要事务：
-        {self.user_name}提出的 重要事件
-    附带具体规则的事务：
+        {self.user_name}提出的 重要事务的具体(规则|步骤|方法|条件),如果没有则留空
     对象指代:
-        对象实际指
-    {self._tags_div}
-    关键词规则：
+        对话中的某个对象 实际指的是 另一对象
+
+
+关键词规则：
     1. 固定为{self._summary_max_tags}个
     2. 按重要性排序
     3. 拆分复合词
-    4. 尽可能使用对话原词
+    4. 尽可能使用对话原始词汇
     5. 使用数组的形式输出到以下位置：
 
-    关键词：
+    {self._tags_div}
             """
-            stat=f"你需要在总结的末尾包含状态追踪和关键词，规范如下：\n\n{stat_rule}\n"
-            user_prompt_summary = f"""基于先前提供的背景总结（仅用于上下文参考）和最新对话内容，生成独立的新总结：\n\n{last}当前对话:"{conversations_str}"\n\n将总结限制在200字以内。总结应使用中文书写，并以过去式书写。\n你的回答应仅包含总结。\n\n{stat}"""
+            user_prompt_summary = prompt_rule
         else:
-            stat_rule = f"""
-{self._tags_div}
+            prompt_rule = f"""
+基于最新对话内容，生成独立的新总结：
+
+当前对话:"{conversations_str}"
+
+将总结限制在200字以内。总结应使用中文书写，以{self.bot_account_id}为视角，并以过去式书写。
+
+你的回答应仅包含总结。
+
+你需要在总结的末尾包含核心关键词，规范如下：
+
 关键词规则：
 1. 固定为{self._summary_max_tags}个
 2. 按重要性排序
 3. 拆分复合词
-4. 尽可能使用对话原词
+4. 尽可能使用对话原始词汇
 5. 使用数组的形式输出到以下位置：
 
-关键词：
+{self._tags_div}
 """
-            stat=f"你需要在总结的末尾包含核心关键词，规范如下：\n\n{stat_rule}\n"
             conversations_str = self.get_conversations_str_for_group(conversations)
-            user_prompt_summary = f"""基于最新对话内容，生成独立的新总结：\n\n当前对话:"{conversations_str}"。将总结限制在200字以内。总结应使用中文书写，以{self.bot_account_id}为视角，并以过去式书写。你的回答应仅包含总结。\n\n"""
+            user_prompt_summary = prompt_rule
 
         output = await self._generator.return_string(user_prompt_summary)
         self.ap.logger.info(f"总结完成：{output}")
         parts = output.split(self._tags_div)
-        summary = parts[0]
-        keywords = parts[-1].split("：")[-1]
+        summary = parts[0] # 总结部分
+        keywords = parts[-1].removeprefix("\n") # 关键词部分
         tags = self._get_tags_from_str_array(keywords)
         if len(tags) > self._summary_max_tags:
             tags = tags[:self._summary_max_tags]
