@@ -6,7 +6,7 @@ class MemoryItem:
     def _init_created_time(self):
         for i in self._tags:
             if i.startswith("DATETIME:"):
-                time_tags = i.replace("DATETIME: ", "")
+                time_tags = i.replace("DATETIME:", "")
                 self._created_time = datetime.strptime(time_tags, "%Y-%m-%d %H:%M:%S")
                 return
         # backoff timestamp
