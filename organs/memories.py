@@ -74,7 +74,7 @@ class Memory:
         self._tags_div = "关键概念："
         self._split_word_cache = LRUCache(100000)
         self._tag_boost = 0.2
-        self._memory_graph = MemoryGraph()
+        self._memory_graph = MemoryGraph(ap)
         # debug info
         self._recall_keywords = []
         self._last_recall_memories = []
@@ -92,7 +92,7 @@ class Memory:
         self.conversation_analysis_flag = waifu_config.data.get("conversation_analysis", True)
         self._thinking_mode_flag = waifu_config.data.get("thinking_mode", True)
         self._short_term_memory_size = waifu_config.data["short_term_memory_size"]
-        self._short_term_memory_size = max(self._short_term_memory_size, 1000)
+        self._short_term_memory_size = max(self._short_term_memory_size, 2000)
         self._retrieve_top_n = waifu_config.data["retrieve_top_n"]
         self._memories_recall_once = waifu_config.data["recall_once"]
         self._memories_session_capacity = waifu_config.data["session_memories_size"]
@@ -137,7 +137,12 @@ class Memory:
 
     def _remove_prefix_suffix_from_tag(self,tag:str) ->str:
         t = tag.replace("\"","").replace("\"","").replace("[","").replace("]","").replace("\n","")
-        t = t.removeprefix(" ").removesuffix(" ")
+        # Strip all invisible characters from beginning and end
+        t = t.strip()
+        while t.startswith("\\"):
+            t = t[1:]
+        while t.endswith("\\"):
+            t = t[:-1]
         t = t.replace("DATETIME: ","DATETIME:")
         return t
 
@@ -145,7 +150,12 @@ class Memory:
         tag_word = tag_word.removeprefix("[").removesuffix("]").split(",")
         result = []
         for tag in tag_word:
-            result.append(self._remove_prefix_suffix_from_tag(tag))
+            t = self._remove_prefix_suffix_from_tag(tag)
+            if t == "":
+                continue
+            if t.count(":") == 0 and t.isalnum():
+                t = t.lower()
+            result.append(t)
         return result
 
     async def _generate_tags(self,conversation:str) -> typing.List[str]:
@@ -210,8 +220,7 @@ class Memory:
     5. 如果在当前对话中以上的信息都没有则留空
     6. 不得重复背景总结的信息，除非当前对话中有提及
     7. 尽可能使用原始词汇
-    8. 不计入总结的字数限制
-    9. 使用列表形式输出到以下位置：
+    8. 使用列表形式输出到以下位置：
 
     重要事务：
 
@@ -442,7 +451,7 @@ class Memory:
     def _format_memory_summary(self,curr:datetime,summary_time:datetime, summary: str) -> str:
         delta = curr - summary_time
         delta_hours = delta.total_seconds()/3600
-        return f"|{summary_time}|{delta_hours:.1f}小时前| {summary}"
+        return f"| {summary_time} | {delta_hours:.1f} 小时前 | {summary}"
 
     def _calc_tag_boost_rate(self, hits: int, total_input_cnt: int) -> float:
         hit_parm = float(hits ** 2)
@@ -464,7 +473,11 @@ class Memory:
         MAX_HOURS = 24
         COMBO_THRESHOLD = 0.15  # 权重门槛
 
-        for summary, tags in self._long_term_memory:
+        if len(self._long_term_memory) == 0:
+            return []
+
+        # 不考虑最新的记忆
+        for summary, tags in self._long_term_memory[:len(self._long_term_memory) - 1]:
             # 提取元标签
             (_,time_tags) = self._extract_time_tag(tags)
             summary_time = datetime.fromtimestamp(self._backoff_timestamp)
@@ -516,7 +529,11 @@ class Memory:
         DECAY_RATE_PER_HOUR = 0.002
         MIN_HOURS, MAX_HOURS = 19, 72
 
-        for summary, tags in self._long_term_memory:
+        if len(self._long_term_memory) == 0:
+            return []
+
+        # 不考虑最新的记忆
+        for summary, tags in self._long_term_memory[:len(self._long_term_memory) - 1]:
             # 提取元标签
             (_,time_tags) = self._extract_time_tag(tags)
             summary_time = datetime.fromtimestamp(self._backoff_timestamp)
@@ -568,7 +585,11 @@ class Memory:
         TOPIC_WEIGHT = 1.2
         BASE_VALUE = 0.7
 
-        for summary, tags in self._long_term_memory:
+        if len(self._long_term_memory) == 0:
+            return []
+
+        # 不考虑最新的记忆
+        for summary, tags in self._long_term_memory[:len(self._long_term_memory) - 1]:
             # 提取元标签
             (_,time_tags) = self._extract_time_tag(tags)
             summary_time = datetime.fromtimestamp(self._backoff_timestamp)
@@ -626,7 +647,11 @@ class Memory:
         MIN_DAYS, MAX_DAYS = 5.6, 30
         JACCARD_FLOOR = 0.03  # 最低标签匹配
 
-        for summary, tags in self._long_term_memory:
+        if len(self._long_term_memory) == 0:
+            return []
+
+        # 不考虑最新的记忆
+        for summary, tags in self._long_term_memory[:len(self._long_term_memory) - 1]:
             # 提取元标签
             (_,time_tags) = self._extract_time_tag(tags)
             summary_time = datetime.fromtimestamp(self._backoff_timestamp)
@@ -682,7 +707,11 @@ class Memory:
         MIN_DAYS = 24
         MAX_DAYS = 365
 
-        for summary, tags in self._long_term_memory:
+        if len(self._long_term_memory) == 0:
+            return []
+
+        # 不考虑最新的记忆
+        for summary, tags in self._long_term_memory[:len(self._long_term_memory) - 1]:
             # 提取元标签
             (_,time_tags) = self._extract_time_tag(tags)
             summary_time = datetime.fromtimestamp(self._backoff_timestamp)
@@ -735,7 +764,11 @@ class Memory:
         SIMILARITY_THRESHOLD = 0.38  # 高精度阈值
         MIN_DAYS = 365  # 1年+
 
-        for summary, tags in self._long_term_memory:
+        if len(self._long_term_memory) == 0:
+            return []
+
+        # 不考虑最新的记忆
+        for summary, tags in self._long_term_memory[:len(self._long_term_memory) - 1]:
             # 提取元标签
             (_,time_tags) = self._extract_time_tag(tags)
             summary_time = datetime.fromtimestamp(self._backoff_timestamp)
@@ -978,11 +1011,14 @@ class Memory:
             "今天", "昨天", "明天", "前天", "后天",
             "早上", "中午", "晚上", "凌晨", "傍晚",
             "上午", "下午", "晚上", "清晨",
-            "1月", "2月", "3月", "4月", "5月", "6月",
-            "7月", "8月", "9月", "10月", "11月", "12月",
             f"{current_time.year}年",
             self.assistant_name,self.user_name
         ]
+        for i in range(1, 13):
+            low_value_keywords.append(f"{i}月")
+        for i in range(1, 32):
+            low_value_keywords.append(f"{i}日")
+            low_value_keywords.append(f"{i}号")
         return low_value_keywords
 
     def _retrieve_related_memories(self, input_tags: typing.List[str]) -> typing.List[str]:
@@ -999,7 +1035,7 @@ class Memory:
         image_cnt = min(len(input_tags),4)
         new_keywords = new_keywords[:len(input_tags) + image_cnt]
 
-        self.ap.logger.info(f"原关键词： {', '.join(input_tags)} 联想关键词：{', '.join(new_keywords)}")
+        self.ap.logger.info(f"原关键词： {', '.join(input_tags)} 联想后关键词：{', '.join(new_keywords)}")
         input_tags = new_keywords
 
         if len(input_tags) != 0:
@@ -1133,6 +1169,7 @@ class Memory:
         for summary, tags in self._long_term_memory:
             mem = MemoryItem(summary, tags)
             self._memory_graph.add_memory(mem)
+        self._memory_graph.print_graph()
 
     def _adjust_long_term_memory_tags(self):
         tag_cnt = self._summary_max_tags + self._meta_tag_count
@@ -1158,10 +1195,15 @@ class Memory:
 
     def _trim_for_tags(self,tags:typing.List[str]) -> typing.List[str]:
         for i in range(len(tags)):
-            tags[i] = self._remove_prefix_suffix_from_tag(tags[i])
+            t = self._remove_prefix_suffix_from_tag(tags[i])
+            if t == "":
+                continue
+            tags[i] = t
             if tags[i].startswith("DATETIME:") and tags[i].count(" ") == 0:
                 ymd = tags[i][:len("DATETIME:") + 10]
                 tags[i] = tags[i].replace(ymd,f"{ymd} ")
+            if tags[i].count(":") == 0 and tags[i].isalnum():
+                tags[i] = tags[i].lower()
         return tags
 
     def _load_long_term_memory_from_file(self):
