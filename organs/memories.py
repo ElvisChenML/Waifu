@@ -271,6 +271,13 @@ class Memory:
             tags.extend(self._generate_time_tags()) # 增加当天时间标签并去重
             tags = list(set(tags))
 
+            # 保留最后1/10
+            limit = self._short_term_memory_size / 10
+            self._drop_short_term_memory(limit)
+
+            # 加入元标签
+            tags.append("DATETIME:" + self.current_time_str())
+
             # 填充到指定数量
             tag_cnt = self._meta_tag_count + self._summary_max_tags
             need_padding = tag_cnt - len(tags)
@@ -278,10 +285,7 @@ class Memory:
                 for i in range(need_padding):
                     tags.append(f"PADDING:{i}")
 
-            # 保留最后1/10
-            limit = self._short_term_memory_size / 10
-            self._drop_short_term_memory(limit)
-            tags.append("DATETIME:" + self.current_time_str())
+            # 保存记忆
             self._add_long_term_memory(summary, tags)
             self._save_long_term_memory_to_file()
             self._save_short_term_memory_to_file()
@@ -991,7 +995,7 @@ class Memory:
         for k in keywords:
             if k not in input_tags:
                 new_keywords.append(k)
-        self.ap.logger.info(f"联想关键词：{', '.join(new_keywords[:20])}")
+        self.ap.logger.info(f"联想关键词：{', '.join(new_keywords)}")
         image_cnt = min(len(input_tags),4)
         new_keywords = new_keywords[:len(input_tags) + image_cnt]
 
