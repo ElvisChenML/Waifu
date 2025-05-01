@@ -95,7 +95,7 @@ class MemoryGraph:
                 # 计算新强度
                 new_strength = strength - 1 / total_weight
 
-                if new_strength > 0:
+                if new_strength >= 0:
                     heapq.heappush(need_search_keywords, (-new_strength, neighbor, depth + 1))
 
         sorted_related = sorted(related.items(), key=lambda x: x[1], reverse=True)

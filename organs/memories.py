@@ -49,8 +49,7 @@ class Memory:
         self._generator = Generator(ap)
         self._long_term_memory: typing.List[typing.Tuple[str, typing.List[str]]] = []
         self._tags_index = {}
-        self._short_term_memory_size = 100
-        self._memory_batch_size = 50
+        self._short_term_memory_size = 1500
         self._retrieve_top_n = 5
         self._summary_max_tags = 30
         self._long_term_memory_file = f"data/plugins/Waifu/data/memories_{launcher_id}.json"
@@ -93,7 +92,6 @@ class Memory:
         self.conversation_analysis_flag = waifu_config.data.get("conversation_analysis", True)
         self._thinking_mode_flag = waifu_config.data.get("thinking_mode", True)
         self._short_term_memory_size = waifu_config.data["short_term_memory_size"]
-        self._memory_batch_size = waifu_config.data["memory_batch_size"]
         self._retrieve_top_n = waifu_config.data["retrieve_top_n"]
         self._memories_recall_once = waifu_config.data["recall_once"]
         self._memories_session_capacity = waifu_config.data["session_memories_size"]
@@ -268,7 +266,7 @@ class Memory:
 
     async def _tag_and_add_conversations(self):
         if self.short_term_memory:
-            summary, tags = await self._tag_conversations(self.short_term_memory[: self._memory_batch_size], True)
+            summary, tags = await self._tag_conversations(self.short_term_memory, True)
             tags.extend(self._generate_time_tags()) # 增加当天时间标签并去重
             tags = list(set(tags))
 
@@ -279,8 +277,7 @@ class Memory:
                 for i in range(need_padding):
                     tags.append(f"PADDING:{i}")
 
-            if len(self.short_term_memory) > self._memory_batch_size:
-                self.short_term_memory = self.short_term_memory[self._memory_batch_size :]
+            self.short_term_memory = []
             tags.append("DATETIME:" + self.current_time_str())
             self._add_long_term_memory(summary, tags)
             self._save_long_term_memory_to_file()
@@ -1024,18 +1021,41 @@ class Memory:
                     memories.append(latest)
         return memories[: self._retrieve_top_n]
 
+    def _calc_short_term_memory_size(self) -> int:
+        size = 0
+        for conversation in self.short_term_memory:
+            size += len(conversation.content)
+        return size
+
+    def _drop_short_term_memory(self):
+        memories = self.short_term_memory.copy()
+        memories.reverse()
+        size = 0
+        max_cnt = 0
+        max_remain = self._short_term_memory_size//2
+        for i in range(len(memories)):
+            mem = memories[i]
+            size += len(mem.content)
+            if size >= max_remain:
+                break
+            max_cnt += 1
+        self.short_term_memory = self.short_term_memory[-max_cnt:]
+        return
+
     async def save_memory(self, role: str, content: str):
         time = self._generator.get_chinese_current_time()
         conversation = llm_entities.Message(role=role, content=f"[{time}]{content}")
         self.short_term_memory.append(conversation)
         self._save_short_term_memory_to_file()
         self._save_conversations_to_file([conversation])
+        current_size = self._calc_short_term_memory_size()
+        self.ap.logger.info(f"当前短期记忆大小: {current_size} 字符, 允许最大值: {self._short_term_memory_size} 字符")
 
-        if len(self.short_term_memory) >= self._short_term_memory_size:
+        if current_size >= self._short_term_memory_size:
             if self._summarization_mode:
                 await self._tag_and_add_conversations()
             else:
-                self.short_term_memory = self.short_term_memory[-self._short_term_memory_size :]
+                self._drop_short_term_memory()
 
     async def remove_last_memory(self) -> str:
         if self.short_term_memory:
