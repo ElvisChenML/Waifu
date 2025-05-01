@@ -278,7 +278,9 @@ class Memory:
                 for i in range(need_padding):
                     tags.append(f"PADDING:{i}")
 
-            self.short_term_memory = []
+            # 保留最后1/10
+            limit = self._short_term_memory_size / 10
+            self._drop_short_term_memory(limit)
             tags.append("DATETIME:" + self.current_time_str())
             self._add_long_term_memory(summary, tags)
             self._save_long_term_memory_to_file()
@@ -1028,16 +1030,15 @@ class Memory:
             size += len(conversation.content)
         return size
 
-    def _drop_short_term_memory(self):
+    def _drop_short_term_memory(self,limit:int):
         memories = self.short_term_memory.copy()
         memories.reverse()
         size = 0
         max_cnt = 0
-        max_remain = self._short_term_memory_size//2
         for i in range(len(memories)):
             mem = memories[i]
             size += len(mem.content)
-            if size >= max_remain:
+            if size >= limit:
                 break
             max_cnt += 1
         self.short_term_memory = self.short_term_memory[-max_cnt:]
@@ -1056,7 +1057,8 @@ class Memory:
             if self._summarization_mode:
                 await self._tag_and_add_conversations()
             else:
-                self._drop_short_term_memory()
+                max_remain = self._short_term_memory_size//2
+                self._drop_short_term_memory(max_remain)
 
     async def remove_last_memory(self) -> str:
         if self.short_term_memory:
