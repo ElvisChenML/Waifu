@@ -92,6 +92,7 @@ class Memory:
         self.conversation_analysis_flag = waifu_config.data.get("conversation_analysis", True)
         self._thinking_mode_flag = waifu_config.data.get("thinking_mode", True)
         self._short_term_memory_size = waifu_config.data["short_term_memory_size"]
+        self._short_term_memory_size = max(self._short_term_memory_size, 1000)
         self._retrieve_top_n = waifu_config.data["retrieve_top_n"]
         self._memories_recall_once = waifu_config.data["recall_once"]
         self._memories_session_capacity = waifu_config.data["session_memories_size"]
