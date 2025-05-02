@@ -34,7 +34,7 @@ class MemoryGraph:
             self._prune_graph()
             self._add_cnt = 0
 
-    def _get_avg_degree(self) -> float:
+    def get_avg_degree(self) -> float:
         """
         计算图的平均度数
         """
@@ -42,10 +42,24 @@ class MemoryGraph:
             return 0.0
         return sum(dict(self._graph.degree()).values()) / self._graph.number_of_nodes()
 
+    def get_avg_degree_of_tags(self, tags: set[str]) -> float:
+        """
+        计算指定标签的平均度数
+        """
+        node_cnt = 0
+        degree_sum = 0.0
+        for tag in tags:
+            if self._graph.has_node(tag):
+                node_cnt += 1
+                degree_sum += self._graph.degree(tag)
+        if node_cnt == 0:
+            return 0.0
+        return degree_sum/ node_cnt
+
     def print_graph(self):
         node_cnt = self._graph.number_of_nodes()
         edge_cnt = self._graph.number_of_edges()
-        avg_degree = self._get_avg_degree()
+        avg_degree = self.get_avg_degree()
         self._app.logger.info(f"图节点数：{node_cnt}，边数：{edge_cnt} 平均度数：{avg_degree:.4f}")
         return
 
@@ -71,7 +85,7 @@ class MemoryGraph:
 
         # 使用分位数计算阈值
         lower_quartile = np.percentile(weights, 25)
-        avg_degree = self._get_avg_degree()
+        avg_degree = self.get_avg_degree()
 
         # 动态调整阈值范围
         max_threshold = 0.4 + 0.1 * math.log2(avg_degree)
@@ -102,7 +116,7 @@ class MemoryGraph:
         """
         根据图的平均度数动态调整每个节点的最大边数
         """
-        avg_degree = self._get_avg_degree()
+        avg_degree = self.get_avg_degree()
         if avg_degree < 30:
             self._max_edges_per_node = 40
         elif avg_degree < 50:
@@ -213,7 +227,22 @@ class MemoryGraph:
             return []
 
         self._update_noise_threshold()
-        self._app.logger.info(f"当前噪声阈值：{self._noise_threshold:.4f}")
+
+        query_avg_degree = self.get_avg_degree_of_tags(valid_keywords)
+        global_avg_degree = self.get_avg_degree()
+
+        adjustment = 0.0
+        if query_avg_degree > 0:
+            ratio = query_avg_degree / global_avg_degree
+            if ratio < 0.5:  # 查询区域明显稀疏
+                adjustment = -0.05  # 降低阈值，允许更多联想
+            elif ratio > 2.0:  # 查询区域明显密集
+                adjustment = 0.05  # 提高阈值，减少联想噪音
+
+        # 最终阈值
+        final_threshold = max(0.05, min(0.5, self._noise_threshold + adjustment))
+
+        self._app.logger.info(f"当前全局噪声阈值：{self._noise_threshold:.4f} 当前联想噪声阈值：{final_threshold:.4f}")
         self._app.logger.info(f"联想有效关键词：{valid_keywords}")
 
         # 初始化优先队列和强度记录

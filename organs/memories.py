@@ -1021,19 +1021,85 @@ class Memory:
             low_value_keywords.append(f"{i}号")
         return low_value_keywords
 
+    def _cluster_keywords(self, keywords: list[str], input_tags: list[str]) -> list[tuple[str, list[str]]]:
+        """将联想词聚类成不同主题（模拟人类思维中的语义聚类）"""
+        # 简化实现：基于与原始标签的关联度分组
+        clusters = defaultdict(list)
+
+        for keyword in keywords:
+            # 找出与该关键词最相关的输入标签
+            max_strength = 0
+            best_match = input_tags[0] if input_tags else "default"
+
+            for tag in input_tags:
+                strength = self._memory_graph.get_connection_strength(keyword, tag)
+                if strength > max_strength:
+                    max_strength = strength
+                    best_match = tag
+
+            clusters[best_match].append((keyword, max_strength))
+
+        # 对每个簇内部按强度排序
+        result = []
+        for topic, word_pairs in clusters.items():
+            sorted_words = [w for w, _ in sorted(word_pairs, key=lambda x: -x[1])]
+            result.append((topic, sorted_words))
+
+        # 按簇的大小和强度排序
+        result.sort(key=lambda x: -len(x[1]))
+        return result
+
     def _retrieve_related_memories(self, input_tags: typing.List[str]) -> typing.List[str]:
-        # 进行标签联想
+        # 第一步：进行标签联想
         keywords = self._memory_graph.get_related_keywords(input_tags)
         low_value_keywords = self._low_value_keywords()
         keywords = [k for k in keywords if k not in low_value_keywords]
-        new_keywords = []
-        new_keywords.extend(input_tags)
-        for k in keywords:
-            if k not in input_tags:
-                new_keywords.append(k)
-        self.ap.logger.info(f"联想关键词：{', '.join(new_keywords)}")
-        image_cnt = min(len(input_tags),4)
-        new_keywords = new_keywords[:len(input_tags) + image_cnt]
+
+        # 第二步：对联想词进行分组
+        keyword_groups = self._cluster_keywords(keywords, input_tags)
+
+        # 第三步：动态调整每个主题的联想词数量
+        importance_factor = min(1.5, max(0.5, len(input_tags)/3))  # 输入标签越多，表明话题越复杂
+        topic_limit = math.ceil(3 * importance_factor)  # 确定主题数量上限
+
+        avg_degree = self._memory_graph.get_avg_degree()
+        max_per_topic = 1
+        max_total = 5
+        # 第四步：根据图密度调整总体联想词数量
+        if avg_degree < 30:
+            max_per_topic = 3  # 图稀疏时，每个主题可以有更多联想词
+            max_total = 9
+        elif avg_degree < 60:
+            max_per_topic = 2  # 图中等密度时，每个主题的联想词数量减少
+            max_total = 7
+
+        query_degrees = self._memory_graph.get_avg_degree_of_tags(input_tags)
+        if query_degrees != 0:
+            # 如果局部区域特别稀疏，适当增加联想词
+            if query_degrees < avg_degree * 0.5:
+                max_per_topic += 1
+                max_total += 2
+            # 如果局部区域特别密集，适当减少联想词
+            elif query_degrees > avg_degree * 1.5:
+                max_per_topic = max(1, max_per_topic - 1)
+                max_total = max(2, max_total - 2)
+
+        # 第五步：从每个主题中选取有限数量的代表词
+        new_keywords = list(input_tags)  # 保留原始标签
+        total_added = 0
+
+        for topic, words in keyword_groups[:topic_limit]:  # 限制主题数
+            self.ap.logger.info(f"主题: {topic} 关键词: {', '.join(words[:max_per_topic])}")
+            added_from_topic = 0
+            for word in words:
+                if word not in new_keywords and added_from_topic < max_per_topic:
+                    new_keywords.append(word)
+                    added_from_topic += 1
+                    total_added += 1
+                    if total_added >= max_total:
+                        break
+            if total_added >= max_total:
+                break
 
         self.ap.logger.info(f"原关键词： {', '.join(input_tags)} 联想后关键词：{', '.join(new_keywords)}")
         input_tags = new_keywords
