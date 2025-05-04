@@ -454,11 +454,11 @@ class Memory:
         return f"| {summary_time} | {delta_hours:.1f} 小时前 | {summary}"
 
     def _calc_tag_boost_rate(self, hits: int, total_input_cnt: int) -> float:
-        hit_parm = float(hits ** 2)
+        hit_parm = float(hits ** 1.5)
         cnt_parm = float(total_input_cnt)
         rate = hit_parm / cnt_parm
-        rate = min(rate, 2.0)
-        rate = max(rate, 1.0)
+        rate = min(rate, 2.5)
+        rate = max(rate, 0.8)
         return rate
 
     def _retrieve_related_l0_memories(self, input_tags: typing.List[str]) -> typing.List[tuple[float, MemoryItem]]:
@@ -1216,9 +1216,13 @@ class Memory:
             with open(tmpFile, "w", encoding="utf-8") as file:
                 json.dump({"long_term": [{"summary": summary, "tags": tags} for summary, tags in self._long_term_memory], "tags_index": self._tags_index}, file, ensure_ascii=False, indent=4)
                 file.flush()
-                os.replace(tmpFile, self._long_term_memory_file)
         except Exception as e:
             self.ap.logger.error(f"Error saving memory to file '{self._long_term_memory_file}': {e}")
+
+        try:
+            os.replace(tmpFile, self._long_term_memory_file)
+        except Exception as e:
+            self.ap.logger.error(f"Error replacing memory file '{self._long_term_memory_file}': {e}")
 
     def _save_short_term_memory_to_file(self):
         tmpFile = "{}.tmp".format(self._short_term_memory_file)
@@ -1226,9 +1230,14 @@ class Memory:
             with open(tmpFile, "w", encoding="utf-8") as file:
                 json.dump([{"role": conv.role, "content": conv.content} for conv in self.short_term_memory], file, ensure_ascii=False, indent=4)
                 file.flush()
-                os.replace(tmpFile, self._short_term_memory_file)
         except Exception as e:
             self.ap.logger.error(f"Error saving memory to file '{self._short_term_memory_file}': {e}")
+            return
+
+        try:
+            os.replace(tmpFile, self._short_term_memory_file)
+        except Exception as e:
+            self.ap.logger.error(f"Error replacing memory file '{self._short_term_memory_file}': {e}")
 
     def _build_memory_graph(self):
         self.ap.logger.info("开始构建记忆图谱")

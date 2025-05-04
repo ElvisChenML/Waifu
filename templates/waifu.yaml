@@ -15,7 +15,7 @@ analyze_max_conversations: 9 # 用于生成分析的最大对话数量。
 max_thinking_words: 30 # 最大思考字数，此配置不是硬性限制，该配置体现于提示语中。
 
 # 记忆模块
-short_term_memory_size: 3000 # 短期记忆，完整的对话记录长度。
+short_term_memory_size: 2000 # 短期记忆，完整的对话记录长度以字为单位。
 retrieve_top_n: 3 # 长期记忆，每次提取retrieve_top_n条相关的长期记忆。
 recall_once: 3 # 每次召回到记忆池中的长期记忆
 session_memories_size: 6 #记忆池容量
