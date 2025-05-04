@@ -263,7 +263,7 @@ class Memory:
             conversations_str = self.get_conversations_str_for_group(conversations)
             user_prompt_summary = prompt_rule
 
-        output = await self._generator.return_string(user_prompt_summary)
+        output = await self._generator.return_string_without_jail_break(user_prompt_summary)
         self.ap.logger.info(f"总结完成：{output}")
         parts = output.split(self._tags_div)
         summary = parts[0] # 总结部分
