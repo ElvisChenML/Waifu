@@ -63,6 +63,7 @@ class Memory:
         self._memory_boost_rate = 0.15
         self._memory_base_growth = 0.2
         self._backoff_timestamp = 1745069038
+        self._state_trace_div = "状态追踪："
         self._tags_div = "关键概念："
         self._split_word_cache = LRUCache(100000)
         self._tag_boost = 0.2
@@ -199,7 +200,7 @@ class Memory:
 
 你需要在总结的末尾包含状态追踪和重要事务以及关键概念，规范如下：
 
-[状态追踪]
+{self._state_trace_div}
     互动状态：
         {self.user_name}正在进行的 持续动作
         {self.assistant_name}正在进行的 持续动作
@@ -456,7 +457,20 @@ class Memory:
     def _format_memory_summary(self,curr:datetime,summary_time:datetime, summary: str) -> str:
         delta = curr - summary_time
         delta_hours = delta.total_seconds()/3600
-        return f"| {summary_time} | {delta_hours:.1f} 小时前 | {summary}"
+        delta_days = delta.days
+
+        human_time = ""
+
+        if delta_days > 0:
+            human_time = f"{delta_days}天{delta_hours - 24*delta_days:.1f}小时前"
+        else:
+            human_time = f"{delta_hours:.1f}小时"
+
+        formatted_time = summary_time.strftime("%m月%d日 %H:%M")
+
+        time_marker = "Time:"
+
+        return f"{time_marker} {formatted_time} {human_time} | {summary}"
 
     def _calc_tag_boost_rate(self, hits: int, total_input_cnt: int) -> float:
         hit_parm = float(hits ** 1.5)
