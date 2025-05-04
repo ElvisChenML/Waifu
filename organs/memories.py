@@ -17,14 +17,6 @@ from plugins.Waifu.organs.lru_cache import LRUCache
 from plugins.Waifu.organs.memory_graph import MemoryGraph
 
 
-# 多级召回记忆系统
-# L0 - 实时捕捉24小时内高频短期记忆，通过分钟级快速衰减筛选高时效内容
-# L1 - 管理24-72小时中期记忆，使用小时级衰减平衡时效性与质量
-# L2 - 处理3-7天记忆，基于主题关联性增强中长期重要信息召回
-# L3 - 保留7-30天记忆，采用混合标签匹配策略挖掘深层语义关联
-# L4 - 维护30天+长期知识，依赖超低衰减率保障核心记忆持久可用
-# L5 - 永久知识库，固化超长期核心知识（1年+），采用事件触发+人工校验模式保障关键记忆永生（未实现）
-
 class Memory:
 
     ap: app.Application
@@ -537,30 +529,30 @@ class Memory:
         hight_weight = hight_similarity * hight_tag_boost
 
         self.ap.logger.info(f"噪声：相似度：{noise_similarity:.2f} Jaccard: {noise_jaccard:.2f} TagBoost: {noise_tag_boost:.2f} 相似度权重: {noise_weight:.2f}")
-        self.ap.logger.info(f"低频：相似度：{low_similarity:.2f} Jaccard: {low_jaccard:.2f} TagBoost: {low_tag_boost:.2f} 相似度权重: {low_weight:.2f}")
-        self.ap.logger.info(f"中频：相似度：{mid_similarity:.2f} Jaccard: {mid_jaccard:.2f} TagBoost: {mid_tag_boost:.2f} 相似度权重: {mid_weight:.2f}")
-        self.ap.logger.info(f"高频：相似度：{hight_similarity:.2f} Jaccard: {hight_jaccard:.2f} TagBoost: {hight_tag_boost:.2f} 相似度权重: {hight_weight:.2f}")
+        self.ap.logger.info(f"低指向：相似度：{low_similarity:.2f} Jaccard: {low_jaccard:.2f} TagBoost: {low_tag_boost:.2f} 相似度权重: {low_weight:.2f}")
+        self.ap.logger.info(f"中指向：相似度：{mid_similarity:.2f} Jaccard: {mid_jaccard:.2f} TagBoost: {mid_tag_boost:.2f} 相似度权重: {mid_weight:.2f}")
+        self.ap.logger.info(f"高指向：相似度：{hight_similarity:.2f} Jaccard: {hight_jaccard:.2f} TagBoost: {hight_tag_boost:.2f} 相似度权重: {hight_weight:.2f}")
 
         self._l0_threshold = round(noise_weight + (low_weight - noise_weight) * 0.3, 3)
 
 
         self._l1_base = low_weight
-        self._l1_threshold_floor = round(low_weight * 0.6, 3)  # 最低不应低于低频的60%
-        # 噪声和低频权重差距越小，衰减率越低(更谨慎)
+        self._l1_threshold_floor = round(low_weight * 0.6, 3)  # 最低不应低于低指向的60%
+        # 噪声和低指向权重差距越小，衰减率越低(更谨慎)
         gap_ratio = (low_weight - noise_weight) / low_weight
         self._l1_hour_reduction_rate = min(0.5, gap_ratio * 0.8)
 
-        self._l2_threshold = round(low_weight, 3)  # 基本阈值等于低频
-        self._l2_jaccard = max(0.05, round(low_jaccard - 0.03, 3)) # 略低于低频的jaccard
-        self._l2_similarity = round(low_similarity * 1.05, 3)  # 略高于低频的相似度
+        self._l2_threshold = round(low_weight, 3)  # 基本阈值等于低指向
+        self._l2_jaccard = max(0.05, round(low_jaccard - 0.03, 3)) # 略低于低指向的jaccard
+        self._l2_similarity = round(low_similarity * 1.05, 3)  # 略高于低指向的相似度
 
         self._l3_threshold = round(low_weight * 1.1, 3)  # 高于L2
         self._l3_jaccard_floor = 0.03  # 保持较低的基础匹配要求
 
         self._l4_threshold = round(mid_weight * 0.6, 3)  # 中等程度阈值
-        self._l4_emergency = round(hight_similarity * 1.2, 3)  # 高于高频相似度
+        self._l4_emergency = round(hight_similarity * 1.2, 3)  # 高于高指向相似度
 
-        self._l5_threshold = round(mid_weight * 1.15, 3)  # 高于中频权重
+        self._l5_threshold = round(mid_weight * 1.15, 3)  # 高于中指向权重
 
         self._print_thresholds()
 
@@ -574,7 +566,7 @@ class Memory:
         self._last_l0_recall_memories = []
 
         # L0配置（0-24小时）
-        DECAY_RATE_PER_MIN = 0.0002  # 每分钟衰减率（24小时后剩余≈exp(-0.002 * 1440)=0.057）
+        DECAY_RATE_PER_MIN = 0.002
         MAX_HOURS = 24
         COMBO_THRESHOLD = self._l0_threshold  # 权重门槛
 
@@ -595,7 +587,8 @@ class Memory:
             # 时间过滤与权重计算
             delta_hours = delta.total_seconds()/3600
             if delta_hours > MAX_HOURS:
-                continue
+                # 记忆按时间排序
+                break
 
             # 分钟级衰减计算
             delta_min = delta.total_seconds() / 60
@@ -631,7 +624,7 @@ class Memory:
         self._last_l1_recall_memories = []
 
         # L1配置（1-3天）
-        DECAY_RATE_PER_HOUR = 0.002
+        DECAY_RATE_PER_HOUR = 0.02
         MIN_HOURS, MAX_HOURS = 19, 72
 
         if len(self._long_term_memory) == 0:
@@ -649,8 +642,14 @@ class Memory:
 
             # 严格时间过滤
             delta_hours = (current_time - summary_time).total_seconds() / 3600
+
+            if delta_hours > MAX_HOURS:
+                # 记忆按时间排序
+                break
+
             if not (MIN_HOURS <= delta_hours <= MAX_HOURS):
                 continue
+
 
             # 时间敏感度检测
             time_weight = math.exp(-DECAY_RATE_PER_HOUR * delta_hours)
@@ -685,7 +684,7 @@ class Memory:
         l2_memories = []
 
         # L2配置（3-7天）
-        TIME_DECAY_RATE = 0.000015 # 小时级衰减
+        TIME_DECAY_RATE = 0.0002 # 小时级衰减
         SIMILARITY_THRESHOLD = self._l2_threshold
         MIN_DAYS, MAX_DAYS = 2.4, 7
         TOPIC_WEIGHT = 1.2
@@ -705,6 +704,11 @@ class Memory:
                 time_tags = summary_time.strftime("%Y-%m-%d %H:%M:%S")
 
             delta_days = (current_time - summary_time).days
+
+            if delta_days > MAX_DAYS:
+                # 记忆按时间排序
+                break
+
             if not (MIN_DAYS <= delta_days <= MAX_DAYS):
                 continue
 
@@ -748,7 +752,7 @@ class Memory:
         l3_memories = []
 
         # L3配置（7-30天）
-        DECAY_RATE = 0.00001  # 天级衰减
+        DECAY_RATE = 0.01  # 天级衰减
         SIMILARITY_THRESHOLD = self._l3_threshold
         MIN_DAYS, MAX_DAYS = 5.6, 30
         JACCARD_FLOOR = self._l3_jaccard_floor  # 最低标签匹配
@@ -767,6 +771,11 @@ class Memory:
                 time_tags = summary_time.strftime("%Y-%m-%d %H:%M:%S")
 
             delta_days = (current_time - summary_time).days
+
+            if delta_days > MAX_DAYS:
+                # 记忆按时间排序
+                break
+
             if not (MIN_DAYS <= delta_days <= MAX_DAYS):
                 continue
 
@@ -827,11 +836,16 @@ class Memory:
                 time_tags = summary_time.strftime("%Y-%m-%d %H:%M:%S")
 
             delta_days = (current_time - summary_time).days
+
+            if delta_days > MAX_DAYS:
+                # 记忆按时间排序
+                break
+
             if not (MIN_DAYS <= delta_days <= MAX_DAYS):
                 continue
 
             # 优化衰减公式（添加非线性因子）
-            decay_factor = 1 + 0.5 * (delta_days//180)
+            decay_factor = 1 + 0.8 * (delta_days//180)
             time_weight = math.exp(-DECAY_RATE * delta_days * decay_factor)
 
             # 命中数计算
