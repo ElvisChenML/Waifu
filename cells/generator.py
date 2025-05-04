@@ -58,6 +58,22 @@ class Generator:
 
         return messages
 
+    def _get_question_prompts_without_jail_break(self, user_prompt: str, output_format: str = "JSON list", system_prompt: str = None) -> typing.List[llm_entities.Message]:
+        messages = []
+        if system_prompt:
+            messages.append(llm_entities.Message(role="system", content=system_prompt))
+
+        task = {
+            "task": user_prompt,
+            "output_format": output_format,
+        }
+
+        user_prompt = json.dumps(task, ensure_ascii=False).strip()
+
+        messages.append(llm_entities.Message(role="user", content=user_prompt))
+
+        return messages
+
     def _get_chat_prompts(self, user_prompt: str | typing.List[llm_entities.Message], system_prompt: str = None) -> typing.List[llm_entities.Message]:
         messages = []
         if self._jail_break_type in ["before", "all"] and "before" in self._jail_break_dict:
@@ -144,6 +160,19 @@ class Generator:
     async def return_string(self, question: str, system_prompt: str = None) -> str:
         model_info = await self.ap.model_mgr.get_model_by_name(self.ap.provider_cfg.data["model"])
         messages = self._get_question_prompts(question, output_format="text", system_prompt=system_prompt)
+
+        self.ap.logger.info("发送请求：\n{}".format(self.messages_to_readable_str(messages)))
+
+        response = await model_info.requester.call(None, model=model_info, messages=messages)
+        cleaned_response = self.clean_response(response.content)
+
+        self.ap.logger.info("模型回复：\n{}".format(cleaned_response))
+        return cleaned_response
+
+    @handle_errors
+    async def return_string_without_jail_break(self, question: str, system_prompt: str = None) -> str:
+        model_info = await self.ap.model_mgr.get_model_by_name(self.ap.provider_cfg.data["model"])
+        messages = self._get_question_prompts_without_jail_break(question, output_format="text", system_prompt=system_prompt)
 
         self.ap.logger.info("发送请求：\n{}".format(self.messages_to_readable_str(messages)))
 
