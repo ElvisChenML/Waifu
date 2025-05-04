@@ -75,6 +75,18 @@ class Memory:
         self._split_word_cache = LRUCache(100000)
         self._tag_boost = 0.2
         self._memory_graph = MemoryGraph(ap)
+        self._l0_threshold = 0.0
+        self._l1_base = 0.0
+        self._l1_threshold_floor = 0.0
+        self._l1_hour_reduction_rate = 0.0
+        self._l2_threshold = 0.0
+        self._l2_jaccard = 0.0
+        self._l2_similarity = 0.0
+        self._l3_threshold = 0.0
+        self._l3_jaccard_floor = 0.0
+        self._l4_threshold = 0.0
+        self._l4_emergency = 0.0
+        self._l5_threshold = 0.0
         # debug info
         self._recall_keywords = []
         self._last_recall_memories = []
@@ -122,7 +134,7 @@ class Memory:
 
         self._adjust_long_term_memory_tags()
         self._build_memory_graph()
-        self._print_emulate_results()
+        self._adjust_memory_thresholds()
 
     async def _tag_conversations(self, conversations: typing.List[llm_entities.Message], summary_flag: bool) -> typing.Tuple[str, typing.List[str]]:
         # 生成Tags：
@@ -491,7 +503,24 @@ class Memory:
         tag_boost = self._calc_tag_boost_rate(hits, total)
         return (similarity, jaccard, tag_boost)
 
-    def _print_emulate_results(self):
+    def format_thresholds(self) -> str:
+        text = ""
+        text += f"L0阈值:{self._l0_threshold:.3f}\n"
+        text += f"L1基础阈值:{self._l1_base:.3f} L1最小阈值:{self._l1_threshold_floor:.3f} L1阈值衰减率:{self._l1_hour_reduction_rate:.3f}\n"
+        text += f"L2阈值:{self._l2_threshold:.3f} L2 Jaccard:{self._l2_jaccard:.3f} L2相似度:{self._l2_similarity:.3f}\n"
+        text += f"L3阈值:{self._l3_threshold:.3f} L3 Jaccard:{self._l3_jaccard_floor:.3f}\n"
+        text += f"L4阈值:{self._l4_threshold:.3f} L4 紧急相似度:{self._l4_emergency:.3f}\n"
+        text += f"L5阈值:{self._l5_threshold:.3f}\n"
+        return text
+
+    def _print_thresholds(self):
+        self.ap.logger.info(f"当前记忆系统阈值：\n{self.format_thresholds()}")
+        return
+
+    def _adjust_memory_thresholds(self):
+        """根据模拟结果动态调整各层级记忆系统的阈值
+        """
+
         noise_hits = 1
         low_hits = 2
         mid_hits = 4
@@ -502,10 +531,39 @@ class Memory:
         mid_similarity,mid_jaccard,mid_tag_boost = self._emulate_weight(mid_hits)
         hight_similarity,hight_jaccard,hight_tag_boost = self._emulate_weight(hight_hits)
 
-        self.ap.logger.info(f"噪声：相似度：{noise_similarity:.2f} Jaccard: {noise_jaccard:.2f} TagBoost: {noise_tag_boost:.2f} 相似度权重: {noise_similarity * noise_tag_boost:.2f}")
-        self.ap.logger.info(f"低频：相似度：{low_similarity:.2f} Jaccard: {low_jaccard:.2f} TagBoost: {low_tag_boost:.2f} 相似度权重: {low_similarity * low_tag_boost:.2f}")
-        self.ap.logger.info(f"中频：相似度：{mid_similarity:.2f} Jaccard: {mid_jaccard:.2f} TagBoost: {mid_tag_boost:.2f} 相似度权重: {mid_similarity * mid_tag_boost:.2f}")
-        self.ap.logger.info(f"高频：相似度：{hight_similarity:.2f} Jaccard: {hight_jaccard:.2f} TagBoost: {hight_tag_boost:.2f} 相似度权重: {hight_similarity * hight_tag_boost:.2f}")
+        noise_weight = noise_similarity * noise_tag_boost
+        low_weight = low_similarity * low_tag_boost
+        mid_weight = mid_similarity * mid_tag_boost
+        hight_weight = hight_similarity * hight_tag_boost
+
+        self.ap.logger.info(f"噪声：相似度：{noise_similarity:.2f} Jaccard: {noise_jaccard:.2f} TagBoost: {noise_tag_boost:.2f} 相似度权重: {noise_weight:.2f}")
+        self.ap.logger.info(f"低频：相似度：{low_similarity:.2f} Jaccard: {low_jaccard:.2f} TagBoost: {low_tag_boost:.2f} 相似度权重: {low_weight:.2f}")
+        self.ap.logger.info(f"中频：相似度：{mid_similarity:.2f} Jaccard: {mid_jaccard:.2f} TagBoost: {mid_tag_boost:.2f} 相似度权重: {mid_weight:.2f}")
+        self.ap.logger.info(f"高频：相似度：{hight_similarity:.2f} Jaccard: {hight_jaccard:.2f} TagBoost: {hight_tag_boost:.2f} 相似度权重: {hight_weight:.2f}")
+
+        self._l0_threshold = round(noise_weight + (low_weight - noise_weight) * 0.3, 3)
+
+
+        self._l1_base = low_weight
+        self._l1_threshold_floor = round(low_weight * 0.6, 3)  # 最低不应低于低频的60%
+        # 噪声和低频权重差距越小，衰减率越低(更谨慎)
+        gap_ratio = (low_weight - noise_weight) / low_weight
+        self._l1_hour_reduction_rate = min(0.5, gap_ratio * 0.8)
+
+        self._l2_threshold = round(low_weight, 3)  # 基本阈值等于低频
+        self._l2_jaccard = max(0.05, round(low_jaccard - 0.03, 3)) # 略低于低频的jaccard
+        self._l2_similarity = round(low_similarity * 1.05, 3)  # 略高于低频的相似度
+
+        self._l3_threshold = round(low_weight * 1.1, 3)  # 高于L2
+        self._l3_jaccard_floor = 0.03  # 保持较低的基础匹配要求
+
+        self._l4_threshold = round(mid_weight * 0.6, 3)  # 中等程度阈值
+        self._l4_emergency = round(hight_similarity * 1.2, 3)  # 高于高频相似度
+
+        self._l5_threshold = round(mid_weight * 1.15, 3)  # 高于中频权重
+
+        self._print_thresholds()
+
         return
 
     def _retrieve_related_l0_memories(self, input_tags: typing.List[str]) -> typing.List[tuple[float, MemoryItem]]:
@@ -518,7 +576,7 @@ class Memory:
         # L0配置（0-24小时）
         DECAY_RATE_PER_MIN = 0.0002  # 每分钟衰减率（24小时后剩余≈exp(-0.002 * 1440)=0.057）
         MAX_HOURS = 24
-        COMBO_THRESHOLD = 0.15  # 权重门槛
+        COMBO_THRESHOLD = self._l0_threshold  # 权重门槛
 
         if len(self._long_term_memory) == 0:
             return []
@@ -611,7 +669,8 @@ class Memory:
 
             # 动态准入（随时间放宽阈值）
             hour_factor = (delta_hours - MIN_HOURS) / (MAX_HOURS - MIN_HOURS)  # 0~1
-            dynamic_th = 0.12 * (1 - 0.4 * hour_factor)
+            dynamic_th = self._l1_base * (1 - self._l1_hour_reduction_rate * hour_factor)
+            dynamic_th = max(dynamic_th,self._l1_threshold_floor)
             if weight > dynamic_th:
                 result_mem = MemoryItem(self._format_memory_summary(current_time,summary_time,summary),tags)
                 l1_memories.append((weight, result_mem))
@@ -627,7 +686,7 @@ class Memory:
 
         # L2配置（3-7天）
         TIME_DECAY_RATE = 0.000015 # 小时级衰减
-        SIMILARITY_THRESHOLD = 0.12
+        SIMILARITY_THRESHOLD = self._l2_threshold
         MIN_DAYS, MAX_DAYS = 2.4, 7
         TOPIC_WEIGHT = 1.2
         BASE_VALUE = 0.7
@@ -675,7 +734,7 @@ class Memory:
             self._last_l2_recall_memories.append((weight,jaccard, similarity, summary[:40],tags))
 
             # 分级准入
-            if weight >= SIMILARITY_THRESHOLD or (jaccard >= 0.06 and similarity >= 0.22):
+            if weight >= SIMILARITY_THRESHOLD or (jaccard >= self._l2_jaccard and similarity >= self._l2_similarity):
                 result_mem = MemoryItem(self._format_memory_summary(current_time,summary_time,summary),tags)
                 l2_memories.append((weight, result_mem))
 
@@ -690,9 +749,9 @@ class Memory:
 
         # L3配置（7-30天）
         DECAY_RATE = 0.00001  # 天级衰减
-        SIMILARITY_THRESHOLD = 0.15
+        SIMILARITY_THRESHOLD = self._l3_threshold
         MIN_DAYS, MAX_DAYS = 5.6, 30
-        JACCARD_FLOOR = 0.03  # 最低标签匹配
+        JACCARD_FLOOR = self._l3_jaccard_floor  # 最低标签匹配
 
         if len(self._long_term_memory) == 0:
             return []
@@ -749,8 +808,8 @@ class Memory:
 
         # L4配置（30天到365天）
         DECAY_RATE = 0.00003  # 超低衰减率
-        EMERGENCY_THRESHOLD = 0.45
-        SIMILARITY_THRESHOLD = 0.18
+        EMERGENCY_THRESHOLD = self._l4_emergency
+        SIMILARITY_THRESHOLD = self._l4_threshold
         MIN_DAYS = 24
         MAX_DAYS = 365
 
@@ -808,7 +867,7 @@ class Memory:
 
         # L5配置（1年以上记忆）
         DECAY_RATE = 0.00003  # 极低衰减率（十年后保留≈e^(-0.00001 * 3650)=0.964）
-        SIMILARITY_THRESHOLD = 0.38  # 高精度阈值
+        SIMILARITY_THRESHOLD = self._l5_threshold  # 高精度阈值
         MIN_DAYS = 365  # 1年+
 
         if len(self._long_term_memory) == 0:
