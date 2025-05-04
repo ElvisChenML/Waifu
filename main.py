@@ -32,6 +32,7 @@ COMMANDS = {
     "最近L3召回": "显示最近召回的记忆，用法：[最近L3召回]。",
     "最近L4召回": "显示最近召回的记忆，用法：[最近L4召回]。",
     "最近L5召回": "显示最近召回的记忆，用法：[最近L5召回]。",
+    "召回阈值": "显示召回阈值，用法：[召回阈值]。",
     "删除记忆": "删除所有长短期记忆，用法：[删除记忆]。",
     "修改数值": "修改Value Game的数字，用法：[修改数值][数值]。",
     "态度": "显示当前Value Game所对应的“态度Manner”，用法：[态度]。",
@@ -316,6 +317,8 @@ class Waifu(BasePlugin):
             response = config.memory.get_last_l4_recall_memories()
         elif msg == "最近L5召回":
             response = config.memory.get_last_l5_recall_memories()
+        elif msg == "召回阈值":
+            response = config.memory.format_thresholds()
         elif msg == "删除记忆":
             response = self._stop_timer(launcher_id)
             config.memory.delete_local_files()
