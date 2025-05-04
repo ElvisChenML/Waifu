@@ -173,7 +173,7 @@ class Memory:
 1. 关键概念可以是名词，动词，或者特定人物
 2. 输出只包含数组结果
 """
-        output = await self._generator.return_string(user_prompt_tags)
+        output = await self._generator.return_string_without_jail_break(user_prompt_tags)
         self.ap.logger.info(f"词语： {conversation} 分词： {output}")
         tags = self._get_tags_from_str_array(output)
         self._split_word_cache.put(conversation,tags)
@@ -499,9 +499,9 @@ class Memory:
         text = ""
         text += f"L0阈值:{self._l0_threshold:.3f}\n"
         text += f"L1基础阈值:{self._l1_base:.3f} L1最小阈值:{self._l1_threshold_floor:.3f} L1阈值衰减率:{self._l1_hour_reduction_rate:.3f}\n"
-        text += f"L2阈值:{self._l2_threshold:.3f} L2 Jaccard:{self._l2_jaccard:.3f} L2相似度:{self._l2_similarity:.3f}\n"
-        text += f"L3阈值:{self._l3_threshold:.3f} L3 Jaccard:{self._l3_jaccard_floor:.3f}\n"
-        text += f"L4阈值:{self._l4_threshold:.3f} L4 紧急相似度:{self._l4_emergency:.3f}\n"
+        text += f"L2阈值:{self._l2_threshold:.3f} L2 Jaccard准入:{self._l2_jaccard:.3f} L2相似度准入:{self._l2_similarity:.3f}\n"
+        text += f"L3阈值:{self._l3_threshold:.3f} L3 Jaccard准入:{self._l3_jaccard_floor:.3f}\n"
+        text += f"L4阈值:{self._l4_threshold:.3f} L4 紧急通道准入:{self._l4_emergency:.3f}\n"
         text += f"L5阈值:{self._l5_threshold:.3f}\n"
         return text
 
