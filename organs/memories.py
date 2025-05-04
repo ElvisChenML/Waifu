@@ -122,6 +122,7 @@ class Memory:
 
         self._adjust_long_term_memory_tags()
         self._build_memory_graph()
+        self._print_emulate_results()
 
     async def _tag_conversations(self, conversations: typing.List[llm_entities.Message], summary_flag: bool) -> typing.Tuple[str, typing.List[str]]:
         # 生成Tags：
@@ -460,6 +461,52 @@ class Memory:
         rate = min(rate, 2.5)
         rate = max(rate, 0.8)
         return rate
+
+    def _emulate_weight(self, hits:int) -> tuple[float, float,float]:
+        total = hits + max(2,hits//2)
+        max_tags = self._summary_max_tags + 4
+        tags:list[str] = []
+        total_tags:list[str] = []
+
+        for i in range(total):
+            tags.append(f"TAG{i}")
+
+        for i in range(max_tags):
+            total_tags.append(f"TAG{i}")
+
+        input_vec = np.zeros(max_tags + total - hits)
+        memory_vec = np.zeros(max_tags + total - hits)
+
+        for i in range(hits):
+            input_vec[i] = 1
+
+        for i in range(max_tags,max_tags + total - hits):
+            input_vec[i] = 1
+
+        for i in range(max_tags):
+            memory_vec[i] = 1
+
+        similarity = self._cosine_similarity(input_vec, memory_vec)
+        jaccard = len(set(tags) & set(total_tags)) / len(set(tags) | set(total_tags))
+        tag_boost = self._calc_tag_boost_rate(hits, total)
+        return (similarity, jaccard, tag_boost)
+
+    def _print_emulate_results(self):
+        noise_hits = 1
+        low_hits = 2
+        mid_hits = 4
+        hight_hits = 6
+
+        noise_similarity,noise_jaccard,noise_tag_boost = self._emulate_weight(noise_hits)
+        low_similarity,low_jaccard,low_tag_boost = self._emulate_weight(low_hits)
+        mid_similarity,mid_jaccard,mid_tag_boost = self._emulate_weight(mid_hits)
+        hight_similarity,hight_jaccard,hight_tag_boost = self._emulate_weight(hight_hits)
+
+        self.ap.logger.info(f"噪声：相似度：{noise_similarity:.2f} Jaccard: {noise_jaccard:.2f} TagBoost: {noise_tag_boost:.2f} 相似度权重: {noise_similarity * noise_tag_boost:.2f}")
+        self.ap.logger.info(f"低频：相似度：{low_similarity:.2f} Jaccard: {low_jaccard:.2f} TagBoost: {low_tag_boost:.2f} 相似度权重: {low_similarity * low_tag_boost:.2f}")
+        self.ap.logger.info(f"中频：相似度：{mid_similarity:.2f} Jaccard: {mid_jaccard:.2f} TagBoost: {mid_tag_boost:.2f} 相似度权重: {mid_similarity * mid_tag_boost:.2f}")
+        self.ap.logger.info(f"高频：相似度：{hight_similarity:.2f} Jaccard: {hight_jaccard:.2f} TagBoost: {hight_tag_boost:.2f} 相似度权重: {hight_similarity * hight_tag_boost:.2f}")
+        return
 
     def _retrieve_related_l0_memories(self, input_tags: typing.List[str]) -> typing.List[tuple[float, MemoryItem]]:
         self.ap.logger.info(f"开始L0记忆召回 Tags: {', '.join(input_tags)}")
