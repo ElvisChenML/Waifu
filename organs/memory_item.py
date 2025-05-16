@@ -6,6 +6,10 @@ META_TAG_MARK=":"
 DATETIME_META="DATETIME:"
 class MemoryItem:
 
+    _summary: str
+    _tags: typing.List[str]
+    _created_time: datetime
+
     def _init_created_time(self):
         for i in self._tags:
             if i.startswith(DATETIME_META):

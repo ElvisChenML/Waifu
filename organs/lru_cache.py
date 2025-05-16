@@ -2,6 +2,9 @@ from typing import List, Optional
 from collections import OrderedDict
 
 class LRUCache:
+    capacity: int
+    cache: OrderedDict[str, List[str]]
+
     def __init__(self, capacity: int):
         self.capacity = capacity
         self.cache: OrderedDict[str, List[str]] = OrderedDict()

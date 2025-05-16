@@ -7,6 +7,16 @@ from pkg.core import app
 import numpy as np
 
 class MemoryGraph:
+
+    _graph:nx.Graph
+    _base_decay:float
+    _noise_threshold:float
+    _max_edges_per_node:int
+    _app:app.Application
+    _need_update_noise:bool
+    _add_cnt:int
+    _add_cnt_limit:int
+
     def __init__(self,app:app.Application):
         # 使用NetworkX图表示记忆连接
         self._graph = nx.Graph()
@@ -149,7 +159,6 @@ class MemoryGraph:
         2. 引入全局归一化：平衡整体权重分布
         3. 动态平滑：防止低频节点权重过高
         """
-        keywords = list(keywords)
         edges_to_update = []
 
         # 统计共现次数
