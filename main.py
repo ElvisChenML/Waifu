@@ -1,6 +1,7 @@
 import asyncio
 import typing
 import os
+import yaml
 import random
 import re
 import copy
@@ -99,9 +100,8 @@ class WaifuRunner(runner.RequestRunner):
             yield
         return
 
-
-@register(name="Waifu", description="Cuter than real waifu!", version="1.9.7", author="ElvisChenML")
-class Waifu(BasePlugin):
+@register(name="Waifu", description="Cuter than real waifu!", version="1.9.8", author="ElvisChenML")
+class WaifuPlugin(BasePlugin):
     def __init__(self, host: APIHost):
         self.ap = host.ap
         self._ensure_required_files_exist()
@@ -110,14 +110,13 @@ class Waifu(BasePlugin):
         self._set_permissions_recursively("data/plugins/Waifu/", 0o777)
 
     async def initialize(self):
-        await self._set_runner("waifu-mode")
         # 为新用户创建配置文件
         config_mgr = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu")
         await config_mgr.load_config(completion=True)
+        await self._generator._initialize_model_config()
 
     async def destroy(self):
         self.ap.logger.warning("Waifu插件正在退出....")
-        await self._set_runner(self.ap.provider_cfg.data['runner'])
 
 
 
@@ -143,8 +142,8 @@ class Waifu(BasePlugin):
             event_type = "GMR"
 
         # 黑白名单检查
-        mode = self.ap.pipeline_cfg.data["access-control"]["mode"]
-        sess_list = set(self.ap.pipeline_cfg.data["access-control"].get(mode, []))
+        mode = self.ap.instance_config.data.get("pipeline", {}).get("access-control", {}).get("mode")
+        sess_list = set(self.ap.instance_config.data.get("pipeline", {}).get("access-control", {}).get(mode, []))
 
         found = (launcher_type == "group" and "group_*" in sess_list) or (launcher_type == "person" and "person_*" in sess_list) or f"{launcher_type}_{launcher_id}" in sess_list
 
@@ -167,7 +166,7 @@ class Waifu(BasePlugin):
             return False
 
         # 排除主项目命令
-        cmd_prefix = self.ap.command_cfg.data.get("command-prefix", [])
+        cmd_prefix = self.ap.instance_config.data.get("command", {}).get("command-prefix", [])
         if any(text_message.startswith(prefix) for prefix in cmd_prefix):
             return False
 
@@ -191,6 +190,7 @@ class Waifu(BasePlugin):
         if need_assistant_reply:
             await self._request_person_reply(ctx, need_save_memory)
             asyncio.create_task(self._handle_narration(ctx, ctx.event.launcher_id))
+            ctx.prevent_default()  # 阻止 LangBot 的默认回复行为
 
     @handler(GroupMessageReceived)
     @handler(GroupNormalMessageReceived)
@@ -205,6 +205,7 @@ class Waifu(BasePlugin):
         need_assistant_reply, _ = await self._handle_command(ctx)
         if need_assistant_reply:
             await self._request_group_reply(ctx)
+            ctx.prevent_default()  # 阻止 LangBot 的默认回复行为
 
     async def _load_config(self, launcher_id: str, launcher_type: str):
         self.waifu_cache[launcher_id] = WaifuCache(self.ap, launcher_id, launcher_type)
@@ -249,21 +250,6 @@ class Waifu(BasePlugin):
             self._set_jail_break(cache, cache.jail_break_mode)
 
         self._set_permissions_recursively("data/plugins/Waifu/", 0o777)
-
-    async def _set_runner(self, runner_name: str):
-        """用于设置 RunnerManager 的 using_runner"""
-        runner_mgr = self.ap.runner_mgr
-        if runner_mgr:
-            for r in runner.preregistered_runners:
-                if r.name == runner_name:
-                    runner_mgr.using_runner = r(self.ap)
-                    await runner_mgr.using_runner.initialize()
-                    self.ap.logger.info(f"已设置运行器为 {runner_name}")
-                    break
-            else:
-                raise Exception(
-                    f"Runner '{runner_name}' not found in preregistered_runners."
-                )
 
     async def _handle_command(self, ctx: EventContext) -> typing.Tuple[bool, bool]:
         need_assistant_reply = False
@@ -690,14 +676,28 @@ class Waifu(BasePlugin):
         content_list = []
 
         session = await self.ap.sess_mgr.get_session(query)
-        conversation = await self.ap.sess_mgr.get_conversation(session)
-        use_model = conversation.use_model
+
+        # 尝试从 query.pipeline_config 中获取 prompt_config
+        # 假设 pipeline 配置中有一个名为 'initial_prompt' 的键，其值为 list[dict]
+        # 如果没有，则使用一个空列表作为默认值
+        prompt_config_from_pipeline = []
+        if query.pipeline_config:
+            prompt_config_from_pipeline = query.pipeline_config.get('initial_prompt', [])
+            if not isinstance(prompt_config_from_pipeline, list):
+                self.ap.logger.warning(f"Pipeline config 'initial_prompt' is not a list, using empty prompt for get_conversation. Found: {prompt_config_from_pipeline}")
+                prompt_config_from_pipeline = []
+        else:
+            self.ap.logger.warning("query.pipeline_config is None, using empty prompt for get_conversation.")
+
+        conversation = await self.ap.sess_mgr.get_conversation(query, session, prompt_config_from_pipeline)
+
+        use_model = conversation.use_llm_model # Changed from conversation.use_model
 
         for me in query.message_chain:
             if isinstance(me, platform_message.Plain):
                 content_list.append(llm_entities.ContentElement.from_text(me.text))
             elif isinstance(me, platform_message.Image):
-                if self.ap.provider_cfg.data["enable-vision"] and use_model:
+                if self.ap.instance_config.data["enable-vision"] and use_model:
                     if me.url is not None:
                         has_image = True
                         content_list.append(llm_entities.ContentElement.from_image_url(str(me.url)))
@@ -755,44 +755,64 @@ class Waifu(BasePlugin):
         cache.thoughts.set_jail_break(type, cache.memory.user_name)
 
     async def _test(self, ctx: EventContext):
-        """
-        功能测试：隐藏指令，功能测试会清空记忆，请谨慎执行。
-        """
-        # 修改配置以优化测试效果
-        launcher_id = ctx.event.launcher_id
-        config = self.waifu_cache[launcher_id]
-        config.narrate_intervals = []
+        # 保存当前配置状态
+        original_config = WaifuCache(self.ap, ctx.event.launcher_id, ctx.event.launcher_type)
+        current_cache = self.waifu_cache.get(ctx.event.launcher_id)
+        if current_cache:
+            # 深拷贝可变对象，如列表和字典
+            for attr, value in vars(current_cache).items():
+                if isinstance(value, (list, dict)):
+                    setattr(original_config, attr, copy.deepcopy(value))
+                else:
+                    setattr(original_config, attr, value)
+
+        config = self.waifu_cache[ctx.event.launcher_id]
+        config.langbot_group_rule = True
+        await self._test_command(ctx, "测试群聊规则#你好") 
+        config.langbot_group_rule = False
+        await self._test_command(ctx, "测试群聊规则#你好") 
+        config.narrate_intervals = [3,5]
+        await self._test_command(ctx, "测试旁白#你好") 
+        config.story_mode_flag = False
+        await self._test_command(ctx, "关闭故事模式#你好") 
         config.story_mode_flag = True
-        config.display_thinking = True
-        config.display_value = True
-        config.personate_mode = False
-        config.jail_break_mode = "off"
-        config.person_response_delay = 0
-        config.continued_rate = 0
-        config.continued_max_count = 0
-        config.summarization_mode = True
-        config.memory.max_narrat_words = 30
-        config.memory.max_thinking_words = 30
-        config.memory._short_term_memory_size = 10
-        config.memory._memory_batch_size = 5
-        # 测试流程
-        await self._reply(ctx, "温馨提示：测试结束会提示【测试结束】。")
-        await self._reply(ctx, "【测试开始】")
-        await self._test_command(ctx, "清空记忆#删除记忆")
-        await self._test_command(ctx, "调用开场场景#开场场景")
-        await self._test_command(ctx, "手动书写自己发言（等同于直接发送）#控制人物user|哇！")
+        await self._test_command(ctx, "开启故事模式#你好") 
+        config.thinking_mode_flag = False
+        await self._test_command(ctx, "关闭思考模式#你好") 
+        config.thinking_mode_flag = True
+        await self._test_command(ctx, "开启思考模式#你好") 
+        config.conversation_analysis_flag = False
+        await self._test_command(ctx, "关闭会话分析#你好")
+        config.conversation_analysis_flag = True
+        await self._test_command(ctx, "开启会话分析#你好") 
         config.display_thinking = False
-        config.person_response_delay = 5
+        await self._test_command(ctx, "关闭显示思考过程#你好")
+        config.display_thinking = True
+        await self._test_command(ctx, "开启显示思考过程#你好") 
+        config.display_value = False
+        await self._test_command(ctx, "关闭显示数值#你好") 
+        config.display_value = True
+        await self._test_command(ctx, "开启显示数值#你好") 
+        config.response_rate = 0
+        await self._test_command(ctx, "关闭回复#你好") 
+        config.response_rate = 1
+        await self._test_command(ctx, "开启回复#你好") 
+        config.summarization_mode = False
+        await self._test_command(ctx, "关闭总结模式#你好")
+        config.summarization_mode = True
+        await self._test_command(ctx, "开启总结模式#你好") 
+        config.personate_mode = False
+        await self._test_command(ctx, "关闭拟人模式#你好")
+        config.personate_mode = True
+        await self._test_command(ctx, "开启拟人模式#你好") 
         config.jail_break_mode = "all"
         self._set_jail_break(config, config.jail_break_mode)
         await self._test_command(ctx, "手动书写“指定角色”发言#控制人物快递员|叮咚~有人在家吗，有你们的快递！")
         config.jail_break_mode = "off"
         self._set_jail_break(config, "off")
-        await self._test_command(ctx, "手动书写旁白#控制人物narrator|（neko兴奋的跳了起来。）")
-        config.personate_mode = True
-        config.bracket_rate = [1, 1]
-        await self._test_command(ctx, "请AI生成旁白#旁白")
-        config.personate_mode = False
+        config.personate_delay = 3
+        await self._test_command(ctx, "主动触发旁白推进剧情#旁白") 
+        config.personate_delay = 0
         config.continued_rate = 1
         config.continued_max_count = 2
         await self._test_command(ctx, "请AI生成“指定角色”发言#控制人物快递员|继续")
@@ -801,11 +821,24 @@ class Waifu(BasePlugin):
         await self._test_command(ctx, "使用“指定角色”推进剧情#推进剧情")
         await self._test_command(ctx, "停止旁白计时器#停止活动")
         await self._test_command(ctx, "查看当前态度数值及当前行为准则（Manner）#态度")
-        await self._test_command(ctx, "撤回最后一条对话#撤回")
-        await self._test_command(ctx, "查看当前长短期记忆#全部记忆")
-        await self._test_command(ctx, "清空记忆#删除记忆")
-        await self._test_command(ctx, "重载配置#加载配置")  # 强制执行，将修改的配置改回来
-        await self._reply(ctx, "【测试结束】")
+        await self._test_command(ctx, "更改态度数值#修改数值5")
+        await self._test_command(ctx, "删除所有记忆#删除记忆")
+        await self._test_command(ctx, "显示最近的长期记忆#最近记忆")
+        await self._test_command(ctx, "显示最近召回的记忆#最近召回")
+        await self._test_command(ctx, "列出目前支援所有命令#列出命令")
+        # 恢复原始配置
+        for attr, value in vars(original_config).items():
+            if hasattr(self.waifu_cache[ctx.event.launcher_id], attr):
+                setattr(self.waifu_cache[ctx.event.launcher_id], attr, value)
+
+        # 特别处理需要重新设置的属性
+        self._set_jail_break(self.waifu_cache[ctx.event.launcher_id], original_config.jail_break_mode)
+        if original_config.narrate_intervals:
+            asyncio.create_task(self._handle_narration(ctx, ctx.event.launcher_id))
+        else:
+            self._stop_timer(ctx.event.launcher_id)
+
+        await ctx.reply(platform_message.MessageChain([platform_message.Plain("测试完成，已恢复配置。")]))
 
     async def _test_command(self, ctx: EventContext, command: str):
         parts = command.split("#")
