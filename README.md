@@ -1,6 +1,6 @@
 # Waifu
 
-[![Github stars](https://img.shields.io/github/stars/ElvisChenML/Waifu?color=cd7373&logo=github&style=flat-square)](https://github.com/ElvisChenML/Waifu/stargazers) ![github top language](https://img.shields.io/github/languages/top/ElvisChenML/Waifu?logo=github) [![License](https://img.shields.io/github/license/ElvisChenML/Waifu?&color=cd7373&style=flat-square)](./LICENSE) [![Static Badge](https://img.shields.io/badge/%E7%A4%BE%E5%8C%BA%E7%BE%A4-619154800-purple)](https://qm.qq.com/q/PClALFK242)
+[![Github stars](https://img.shields.io/github/stars/ElvisChenML/Waifu?color=cd7373&logo=github&style=flat-square)](https://github.com/ElvisChenML/Waifu/stargazers) ![github top language](https://img.shields.io/github/languages/top/ElvisChenML/Waifu?logo=github) [![License](https://img.shields.io/github/license/ElvisChenML/Waifu?&color=cd7373&style=flat-square)](./LICENSE) [![Static Badge](https://img.shields.io/badge/%E7%A4%BE%E5%8C%BA%E7%BE%A4-619154800-purple)](https://qm.qq.com/q/PClALFK242)  [![Static Badge](https://img.shields.io/badge/Waifu%E6%8F%92%E4%BB%B6%E4%BA%A4%E6%B5%81%E7%BE%A4-496144593-green)](https://qm.qq.com/q/Tcrj9JUkIm)
 
 * 社区群为LangBot社区群，有项目主程序或插件相关问题可至群内询问。
 * 提问前请先查看文档及Issue。
