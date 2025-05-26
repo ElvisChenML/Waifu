@@ -553,7 +553,7 @@ class WaifuPlugin(BasePlugin):
             config.continued_count = 0
 
             config.response_timers_flag = False
-            await self._person_reply(ctx)  # 检查是否回复期间又满足响应条件
+          #  await self._person_reply(ctx)  # 检查是否回复期间又满足响应条件 
 
         except Exception as e:
             self.ap.logger.error(f"Error occurred during person reply: {e}")
