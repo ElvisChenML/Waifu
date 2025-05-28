@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import json
 import traceback
 import typing
 import os
@@ -119,7 +120,7 @@ class WaifuPlugin(BasePlugin):
 
 
     async def initialize(self):  #重写初始化
-        await super().initialize()  # 调用父类的 initialize (如果它有实际逻辑)
+        await super().initialize()  # 调用父类的 initialize
 
         # --- 1. 初始化 Generator 的模型配置 ---
         if hasattr(self, '_generator') and hasattr(self._generator, '_initialize_model_config'):
@@ -137,27 +138,129 @@ class WaifuPlugin(BasePlugin):
 
 
 
-    async def _get_target_adapter_for_test(self):
+
+    ##读取tag和summary
+    def _get_tag_summary(self):
+
+        fixed_file_path = "D:\\memories_1344672204.json"
+        print(f"Attempting to read LTM file: {fixed_file_path}")
+
+        try:
+            with open(fixed_file_path, "r", encoding="utf-8") as file:
+                data = json.load(file)  # 解析整个JSON数据
+
+            if "long_term" in data and isinstance(data["long_term"], list) and data["long_term"]:
+                latest_entry = data["long_term"][-1]  # 获取列表的最后一个元素
+
+                if isinstance(latest_entry, dict) and "summary" in latest_entry and "tags" in latest_entry:
+                    summary_text = latest_entry["summary"]
+                    tags_list = latest_entry["tags"]
+
+                           ## ----处理summary_text
+
+                    processed_summary = summary_text  # 默认是原始的
+                    status_tracking_marker = "状态追踪："
+                    important_affairs_marker = "重要事务："
+
+                    status_tracking_start_index = summary_text.find(status_tracking_marker)
+
+                    if status_tracking_start_index != -1:
+                        narrative_part = summary_text[:status_tracking_start_index].strip()
+                        important_affairs_start_index = summary_text.find(important_affairs_marker,
+                                                                          status_tracking_start_index)
+
+                        if important_affairs_start_index != -1:
+                            # 提取 "重要事务：" 之后的内容
+                            important_affairs_content = summary_text[important_affairs_start_index + len(
+                                important_affairs_marker):].strip()
+
+                            # 可以进一步清理 important_affairs_content，比如只取前几行，或者去掉多余的换行
+
+                            lines = [line.strip() for line in important_affairs_content.split('\n') if line.strip()]
+                            important_affairs_part_extracted = "\n我们之前提到的一些重要事情有：" + "\n    ".join(
+                                lines[:3])  # 只取前3个事务
+                            processed_summary = f"{narrative_part}{important_affairs_part_extracted}"
+                        else:
+                            # 只找到了状态追踪，没找到重要事务，就只用叙事部分
+                            processed_summary = narrative_part
+                    else:
+                        print(
+                            "DEBUG LTM Processed: '状态追踪：' marker not found. Using summary as is (or potentially truncated).")
+
+                    return processed_summary, tags_list    #返回tag和summary
+
+
+
+                else:
+                    print("ERROR: Latest LTM entry has unexpected format or missing 'summary'/'tags'.")
+                    return None, None
+            else:
+                print("ERROR: No 'long_term' list found in the JSON data, or it is empty.")
+                return None, None
+        except FileNotFoundError:
+            print(f"ERROR: File not found at path: {fixed_file_path}")
+            return None, None
+        except json.JSONDecodeError as e:
+            print(f"ERROR: Could not decode JSON from file. Error: {e}")
+            return None, None
+        except Exception as e:
+            print(f"ERROR: An unexpected error occurred: {e}")
+            traceback.print_exc()
+            return None, None
+
+
+
+    async def _get_target_adapter_for_test(self): #获取机器人实例
 
         platform_manager = self.ap.platform_mgr
         runtime_bot = await platform_manager.get_bot_by_uuid(self.test_target_bot_uuid)
         return runtime_bot.adapter
 
 
-    async def _test_proactive_send(self):
+
+    async def _test_llm_proactive_greeting(self):   ##测试主动问候生成词
+
+        summary_text, tags_list =  self._get_tag_summary()  #获取tag和summary
+        # 简单筛选 tags (去除 PADDING 和 DATETIME)
+        filtered_tags = [tag for tag in tags_list if not tag.startswith("PADDING:") and not tag.startswith("DATETIME:")]
+
+        # 取 summary 的前一部分作为上下文，避免过长
+        summary_snippet = summary_text[:300] + "..." if len(summary_text) > 300 else summary_text
+        system_prompt_with_ltm = (
+            f"你的男友（用户）可能有一段时间没有说话了。"
+            f"我们最近的对话中，有一个总结大致是这样的：'{summary_snippet}'\n"
+         #   f"并且涉及到的一些话题标签有：'{filtered_tags}'。\n"
+            f"请你基于这些信息，自然地对他发起一个主动的问候或对话。可以是对总结中某个点的延续，或者基于标签引发新的联想，或者表达你对他的关心。\n"
+            f"请直接说出非常简短的问候内容，大约一句话，简短精炼，不要带上你的名字作为前缀。"
+        )
+        print(f"DEBUG LTM Test: System Prompt:\n{system_prompt_with_ltm}")
+
+
+        user_request_for_greeting = " "
+        response = await self._generator.return_chat(
+            request=user_request_for_greeting,
+            system_prompt=system_prompt_with_ltm
+        )
+        return response  #返回LLM 回应
+
+
+    async def _test_proactive_send(self):  #主动发送消息功能
         try:
             adapter_instance = await self._get_target_adapter_for_test()
             if adapter_instance:
-                message_to_send_str = "洛希主动测试！(直接字符串版)" # 1. 定义要发送的文本字符串
+                message_to_send_str = await self._test_llm_proactive_greeting()  #获取总promt
 
                 await adapter_instance.send_message(
                     target_type="person",  # 直接将 "person" 字符串传入
                     target_id=self.test_target_user_id,
                     message=platform_message.MessageChain([message_to_send_str])
                 )
-
             else:
                 print("WaifuPlugin Test ERROR: Could not get adapter instance for proactive send.")
+
+
+
+
 
         except Exception as e:
             print(f"WaifuPlugin Test ERROR during proactive send: {e}")
@@ -166,7 +269,12 @@ class WaifuPlugin(BasePlugin):
 
     ##初始化结束
 
-        ##结束
+
+
+
+
+
+
 
 
     async def destroy(self):
@@ -563,10 +671,13 @@ class WaifuPlugin(BasePlugin):
         launcher_id = ctx.event.launcher_id
         config = self.waifu_cache[launcher_id]
 
+        asyncio.create_task(self._test_proactive_send())   #测试：主动生成消息
+
+
         if config.unreplied_count > 0:
             if launcher_id not in self.waifu_cache or not config.response_timers_flag:
                 config.response_timers_flag = True
-                asyncio.create_task(self._delayed_person_reply(ctx))
+             #   asyncio.create_task(self._delayed_person_reply(ctx))  #先屏蔽正常功能
 
     async def _delayed_person_reply(self, ctx: EventContext):
         launcher_id = ctx.event.launcher_id
@@ -606,7 +717,7 @@ class WaifuPlugin(BasePlugin):
             config.continued_count = 0
 
             config.response_timers_flag = False
-          #  await self._person_reply(ctx)  # 检查是否回复期间又满足响应条件 
+          #  await self._person_reply(ctx)  # 检查是否回复期间又满足响应条件
 
         except Exception as e:
             self.ap.logger.error(f"Error occurred during person reply: {e}")
@@ -619,7 +730,7 @@ class WaifuPlugin(BasePlugin):
         config = self.waifu_cache[launcher_id]
         system_prompt = config.memory.to_custom_names(config.cards.generate_system_prompt())
         self._generator.set_speakers([config.memory.assistant_name])
-        response = await self._generator.return_chat(user_prompt, system_prompt)
+        response = await self._generator.return_chat(user_prompt, system_prompt)   #发消息
         await config.memory.save_memory(role="assistant", content=response)
 
         if config.personate_mode:
@@ -821,50 +932,50 @@ class WaifuPlugin(BasePlugin):
 
         config = self.waifu_cache[ctx.event.launcher_id]
         config.langbot_group_rule = True
-        await self._test_command(ctx, "测试群聊规则#你好") 
+        await self._test_command(ctx, "测试群聊规则#你好")
         config.langbot_group_rule = False
-        await self._test_command(ctx, "测试群聊规则#你好") 
+        await self._test_command(ctx, "测试群聊规则#你好")
         config.narrate_intervals = [3,5]
-        await self._test_command(ctx, "测试旁白#你好") 
+        await self._test_command(ctx, "测试旁白#你好")
         config.story_mode_flag = False
-        await self._test_command(ctx, "关闭故事模式#你好") 
+        await self._test_command(ctx, "关闭故事模式#你好")
         config.story_mode_flag = True
-        await self._test_command(ctx, "开启故事模式#你好") 
+        await self._test_command(ctx, "开启故事模式#你好")
         config.thinking_mode_flag = False
-        await self._test_command(ctx, "关闭思考模式#你好") 
+        await self._test_command(ctx, "关闭思考模式#你好")
         config.thinking_mode_flag = True
-        await self._test_command(ctx, "开启思考模式#你好") 
+        await self._test_command(ctx, "开启思考模式#你好")
         config.conversation_analysis_flag = False
         await self._test_command(ctx, "关闭会话分析#你好")
         config.conversation_analysis_flag = True
-        await self._test_command(ctx, "开启会话分析#你好") 
+        await self._test_command(ctx, "开启会话分析#你好")
         config.display_thinking = False
         await self._test_command(ctx, "关闭显示思考过程#你好")
         config.display_thinking = True
-        await self._test_command(ctx, "开启显示思考过程#你好") 
+        await self._test_command(ctx, "开启显示思考过程#你好")
         config.display_value = False
-        await self._test_command(ctx, "关闭显示数值#你好") 
+        await self._test_command(ctx, "关闭显示数值#你好")
         config.display_value = True
-        await self._test_command(ctx, "开启显示数值#你好") 
+        await self._test_command(ctx, "开启显示数值#你好")
         config.response_rate = 0
-        await self._test_command(ctx, "关闭回复#你好") 
+        await self._test_command(ctx, "关闭回复#你好")
         config.response_rate = 1
-        await self._test_command(ctx, "开启回复#你好") 
+        await self._test_command(ctx, "开启回复#你好")
         config.summarization_mode = False
         await self._test_command(ctx, "关闭总结模式#你好")
         config.summarization_mode = True
-        await self._test_command(ctx, "开启总结模式#你好") 
+        await self._test_command(ctx, "开启总结模式#你好")
         config.personate_mode = False
         await self._test_command(ctx, "关闭拟人模式#你好")
         config.personate_mode = True
-        await self._test_command(ctx, "开启拟人模式#你好") 
+        await self._test_command(ctx, "开启拟人模式#你好")
         config.jail_break_mode = "all"
         self._set_jail_break(config, config.jail_break_mode)
         await self._test_command(ctx, "手动书写“指定角色”发言#控制人物快递员|叮咚~有人在家吗，有你们的快递！")
         config.jail_break_mode = "off"
         self._set_jail_break(config, "off")
         config.personate_delay = 3
-        await self._test_command(ctx, "主动触发旁白推进剧情#旁白") 
+        await self._test_command(ctx, "主动触发旁白推进剧情#旁白")
         config.personate_delay = 0
         config.continued_rate = 1
         config.continued_max_count = 2
