@@ -120,7 +120,6 @@ class WaifuPlugin(BasePlugin):
 
     async def initialize(self):  #重写初始化
         await super().initialize()  # 调用父类的 initialize (如果它有实际逻辑)
-        self.ap.logger.info("WaifuPlugin: Starting async initialization (initialize method)...")
 
         # --- 1. 初始化 Generator 的模型配置 ---
         if hasattr(self, '_generator') and hasattr(self._generator, '_initialize_model_config'):
@@ -130,52 +129,26 @@ class WaifuPlugin(BasePlugin):
                 if self._generator.selected_model_info:
                     self.ap.logger.info(
                         f"WaifuPlugin: Generator model selected: {self._generator.selected_model_info.model_entity.name}")
-                else:
-                    # 这个错误在 _set_selected_model 内部已经打印过了，这里可以不重复打印，或者只打一个简短的
-                    self.ap.logger.warning(
-                        "WaifuPlugin: Generator did not select a model after _initialize_model_config.")
             except Exception as e:
                 self.ap.logger.error(f"WaifuPlugin: Error during Generator model initialization: {e}")
                 self.ap.logger.error(traceback.format_exc())
         else:
             self.ap.logger.error("WaifuPlugin: _generator or _generator._initialize_model_config not found!")
 
-     ##结束1
 
 
     async def _get_target_adapter_for_test(self):
-        # print("WaifuPlugin Test: _get_target_adapter_for_test() called.") # 可以去掉更多
-        if not hasattr(self.ap, 'platform_mgr') or not self.ap.platform_mgr:
-            print("WaifuPlugin Test ERROR: self.ap.platform_mgr is not available.")
-            return None
+
         platform_manager = self.ap.platform_mgr
-        if not self.test_target_bot_uuid:
-            print("WaifuPlugin Test ERROR: test_target_bot_uuid is not set.")
-            return None
         runtime_bot = await platform_manager.get_bot_by_uuid(self.test_target_bot_uuid)
-        if not runtime_bot:
-            print(f"WaifuPlugin Test ERROR: Bot with UUID '{self.test_target_bot_uuid}' not found.")
-            return None
-        if not runtime_bot.enable:
-            print(
-                f"WaifuPlugin Test WARNING: Bot (UUID: {self.test_target_bot_uuid}) is not enabled, but attempting send for test.")
-        if not hasattr(runtime_bot, 'adapter'):
-            print(f"WaifuPlugin Test ERROR: RuntimeBot (UUID: {self.test_target_bot_uuid}) has no 'adapter' attribute.")
-            return None
         return runtime_bot.adapter
 
 
-
     async def _test_proactive_send(self):
-        print("WaifuPlugin Test: _test_proactive_send() task started.")
         try:
             adapter_instance = await self._get_target_adapter_for_test()
             if adapter_instance:
-
-
                 message_to_send_str = "洛希主动测试！(直接字符串版)" # 1. 定义要发送的文本字符串
-
-
 
                 await adapter_instance.send_message(
                     target_type="person",  # 直接将 "person" 字符串传入
@@ -183,10 +156,9 @@ class WaifuPlugin(BasePlugin):
                     message=platform_message.MessageChain([message_to_send_str])
                 )
 
-
-                print("WaifuPlugin Test: Proactive message send attempt FINISHED.")
             else:
                 print("WaifuPlugin Test ERROR: Could not get adapter instance for proactive send.")
+
         except Exception as e:
             print(f"WaifuPlugin Test ERROR during proactive send: {e}")
             traceback.print_exc()  # 保留这个
@@ -195,8 +167,6 @@ class WaifuPlugin(BasePlugin):
     ##初始化结束
 
         ##结束
-
-
 
 
     async def destroy(self):
