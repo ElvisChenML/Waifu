@@ -4,6 +4,8 @@ import json
 import traceback
 import typing
 import os
+from turtledemo.penrose import start
+
 import yaml
 import random
 import re
@@ -93,6 +95,11 @@ class WaifuCache:
         self.blacklist = []
         self.ignore_prefix = []
 
+        self.proactive_greeting_enabled: bool = False
+        self.proactive_greeting_probability: int = 0
+        self.proactive_min_inactive_hours = 3.0
+        self.proactive_do_not_disturb_start = "23:00"
+        self.proactive_do_not_disturb_end = "8:00"
 
 
 @runner.runner_class("waifu-mode")
@@ -109,25 +116,30 @@ class WaifuRunner(runner.RequestRunner):
 class WaifuPlugin(BasePlugin):
     def __init__(self, host: APIHost):
 
+        self.proactive_check_interval_seconds = 60 #测试循环间隔
         self.ap = host.ap
         self._ensure_required_files_exist()
         self._generator = Generator(self.ap)
         self.waifu_cache: typing.Dict[str, WaifuCache] = {}
         self._set_permissions_recursively("data/plugins/Waifu/", 0o777)
+
+        asyncio.create_task(self._proactive_loop())
+
         self.test_target_user_id = "1344672204"  # <--- !!! 【1. 修改这里】替换成你的QQ号 !!!
         self.test_target_bot_uuid = "63f188ba-62a8-4822-8d5c-45f798025c63" # <--- !!! 【2. 修改这里】替换成洛希的Bot UUID !!!
 
 
 
     async def initialize(self):  #重写初始化
-        await super().initialize()  # 调用父类的 initialize
+        await super().initialize()  # 确保父类后期扩展
 
-        # --- 1. 初始化 Generator 的模型配置 ---
+        #初始化 Generator 的模型配置 ---
         if hasattr(self, '_generator') and hasattr(self._generator, '_initialize_model_config'):
             self.ap.logger.info("WaifuPlugin: Initializing Generator's model configuration...")
             try:
-                await self._generator._initialize_model_config()  # 调用异步方法
+                await self._generator._initialize_model_config()  # 主动调用初始化方法
                 if self._generator.selected_model_info:
+                    self.generator_model_ready = True
                     self.ap.logger.info(
                         f"WaifuPlugin: Generator model selected: {self._generator.selected_model_info.model_entity.name}")
             except Exception as e:
@@ -139,12 +151,12 @@ class WaifuPlugin(BasePlugin):
 
 
 
+
     ##读取tag和summary
     def _get_tag_summary(self):
 
         fixed_file_path = "D:\\memories_1344672204.json"
         print(f"Attempting to read LTM file: {fixed_file_path}")
-
         try:
             with open(fixed_file_path, "r", encoding="utf-8") as file:
                 data = json.load(file)  # 解析整个JSON数据
@@ -156,41 +168,29 @@ class WaifuPlugin(BasePlugin):
                     summary_text = latest_entry["summary"]
                     tags_list = latest_entry["tags"]
 
-                           ## ----处理summary_text
-
-                    processed_summary = summary_text  # 默认是原始的
+                    processed_summary = summary_text   ## ----处理summary_text
                     status_tracking_marker = "状态追踪："
                     important_affairs_marker = "重要事务："
-
                     status_tracking_start_index = summary_text.find(status_tracking_marker)
 
                     if status_tracking_start_index != -1:
                         narrative_part = summary_text[:status_tracking_start_index].strip()
                         important_affairs_start_index = summary_text.find(important_affairs_marker,
                                                                           status_tracking_start_index)
-
                         if important_affairs_start_index != -1:
                             # 提取 "重要事务：" 之后的内容
                             important_affairs_content = summary_text[important_affairs_start_index + len(
-                                important_affairs_marker):].strip()
-
-                            # 可以进一步清理 important_affairs_content，比如只取前几行，或者去掉多余的换行
-
+                                important_affairs_marker):].strip()   # 可以进一步清理 important_affairs_content，比如只取前几行，或者去掉多余的换行
                             lines = [line.strip() for line in important_affairs_content.split('\n') if line.strip()]
                             important_affairs_part_extracted = "\n我们之前提到的一些重要事情有：" + "\n    ".join(
                                 lines[:3])  # 只取前3个事务
                             processed_summary = f"{narrative_part}{important_affairs_part_extracted}"
                         else:
-                            # 只找到了状态追踪，没找到重要事务，就只用叙事部分
-                            processed_summary = narrative_part
+                            processed_summary = narrative_part  # 只找到了状态追踪，没找到重要事务，就只用叙事部分
                     else:
                         print(
                             "DEBUG LTM Processed: '状态追踪：' marker not found. Using summary as is (or potentially truncated).")
-
                     return processed_summary, tags_list    #返回tag和summary
-
-
-
                 else:
                     print("ERROR: Latest LTM entry has unexpected format or missing 'summary'/'tags'.")
                     return None, None
@@ -213,63 +213,182 @@ class WaifuPlugin(BasePlugin):
     async def _get_target_adapter_for_test(self): #获取机器人实例
 
         platform_manager = self.ap.platform_mgr
-        runtime_bot = await platform_manager.get_bot_by_uuid(self.test_target_bot_uuid)
+        runtime_bot = await platform_manager.get_bot_by_uuid(self.test_target_bot_uuid)  #后期可能要主动读取
         return runtime_bot.adapter
 
 
 
-    async def _test_llm_proactive_greeting(self):   ##测试主动问候生成词
+    async def proactive_greeting(self):   ##测试主动问候生成词
 
         summary_text, tags_list =  self._get_tag_summary()  #获取tag和summary
-        # 简单筛选 tags (去除 PADDING 和 DATETIME)
-        filtered_tags = [tag for tag in tags_list if not tag.startswith("PADDING:") and not tag.startswith("DATETIME:")]
 
-        # 取 summary 的前一部分作为上下文，避免过长
-        summary_snippet = summary_text[:300] + "..." if len(summary_text) > 300 else summary_text
+        #filtered_tags = [tag for tag in tags_list if not tag.startswith("PADDING:") and not tag.startswith("DATETIME:")] # 简单筛选 tags
+
+        await self._load_config(self.test_target_user_id, "person")  #读取配置
+        config = self.waifu_cache[self.test_target_user_id]
+        raw_prompt = config.cards.generate_system_prompt()
+        full_card_prompt_text = config.memory.to_custom_names(raw_prompt)
+        system_prompt_for_summarizing_card = (
+            f"请阅读这张角色卡，并从中提取出最能代表该角色核心性格、行为方式关键要点。"
+            f"总结应非常简短精炼\n"
+            f"请直接输出大概一句话的文本摘要\n"
+        )
+        if self._generator and self._generator.selected_model_info:
+            try:
+                if hasattr(self._generator, 'set_speakers'):
+                    self._generator.set_speakers([])  # 清空或不设置特定speaker
+                card_summary_text = await self._generator.return_chat(
+                    request=full_card_prompt_text,  # 完整的角色卡作为请求
+                    system_prompt=system_prompt_for_summarizing_card  # 指示LLM进行总结的系统提示
+                )
+              #  print(card_summary_text)     #角色卡精炼总结,避免LLM过长
+            except Exception as e:
+                print(f"ERROR during LLM call for card summary: {e}")
+        else:
+            print("ERROR: Generator or its model is not ready for card summary call.")
+
+        conversations = config.memory.get_normalize_short_term_memory()
+        conversation = conversations[-5:]  #获取历史对话切片
+        formatted_history_lines = []
+        for msg_obj in conversation:
+            content_text = str(msg_obj.content).strip()
+            formatted_history_lines.append(f"\n{content_text}")
+
+        if formatted_history_lines:
+            recent_dialogue_str = "\n".join(formatted_history_lines)   #简单处理对话
+
+        summary_snippet = summary_text[:150] + "..." if len(summary_text) > 150 else summary_text  # 取 summary 的前一部分作为上下文，避免过长
         system_prompt_with_ltm = (
-            f"你的男友（用户）可能有一段时间没有说话了。"
+            f"你的角色设定是这样的:'{card_summary_text}\n'" #加入简短的角色设定
+           # f"对方可能有一段时间没有说话了。"
             f"我们最近的对话中，有一个总结大致是这样的：'{summary_snippet}'\n"
-         #   f"并且涉及到的一些话题标签有：'{filtered_tags}'。\n"
-            f"请你基于这些信息，自然地对他发起一个主动的问候或对话。可以是对总结中某个点的延续，或者基于标签引发新的联想，或者表达你对他的关心。\n"
+         #   f"并且涉及到的一些话题标签有：'{filtered_tags}'。\n"  
+            f"作为参考，以下是我们最近的一些对话内容：[对话开始\n{recent_dialogue_str}\n对话结束]\n\n" 
+            f"请你基于这些信息，自然地对他发起一个主动的问候或对话。"
             f"请直接说出非常简短的问候内容，大约一句话，简短精炼，不要带上你的名字作为前缀。"
         )
-        print(f"DEBUG LTM Test: System Prompt:\n{system_prompt_with_ltm}")
-
-
         user_request_for_greeting = " "
         response = await self._generator.return_chat(
             request=user_request_for_greeting,
             system_prompt=system_prompt_with_ltm
         )
+        await config.memory.save_memory(role="assistant", content=response)
+
+
         return response  #返回LLM 回应
 
 
-    async def _test_proactive_send(self):  #主动发送消息功能
+    async def proactive_send(self):  #主动发送消息功能
         try:
             adapter_instance = await self._get_target_adapter_for_test()
             if adapter_instance:
-                message_to_send_str = await self._test_llm_proactive_greeting()  #获取总promt
+                message_to_send_str = await self.proactive_greeting()  #获取总promt
 
                 await adapter_instance.send_message(
-                    target_type="person",  # 直接将 "person" 字符串传入
-                    target_id=self.test_target_user_id,
+                    target_type="person",
+                    target_id=self.test_target_user_id,  #后期可能主动读取
                     message=platform_message.MessageChain([message_to_send_str])
                 )
             else:
                 print("WaifuPlugin Test ERROR: Could not get adapter instance for proactive send.")
 
-
-
-
-
         except Exception as e:
             print(f"WaifuPlugin Test ERROR during proactive send: {e}")
-            traceback.print_exc()  # 保留这个
+            traceback.print_exc()
         print("WaifuPlugin Test: _test_proactive_send() task completed.")
 
-    ##初始化结束
+    ##proactive send end--
+
+    async def _check_user_inactivity(self):
+
+        await self._load_config(self.test_target_user_id, "person")  # 读取配置
+        config = self.waifu_cache[self.test_target_user_id]
+
+        current_time = datetime.datetime.now()
+        last_message_time = config.memory.get_lastest_time(config.memory.short_term_memory)  #时间差值
+        if not current_time:
+            print(f"Could not extract last message time for user")
+            return
+
+        time_difference = current_time - last_message_time
+
+        inactive_minutes = time_difference.total_seconds()
+        inactive_minutes_float = float(inactive_minutes) / 60
+
+        inactivity_threshold_minutes = config.proactive_min_inactive_hours
+        inactivity_threshold_minutes_float = float(inactivity_threshold_minutes) * 60
+
+        print(inactive_minutes_float)
+        print(inactivity_threshold_minutes_float)
+
+        if inactive_minutes_float > inactivity_threshold_minutes_float:  #差值大于规定最小时间
+
+            current_time_hm_only = current_time.time()
+            proactive_do_not_disturb_start = config.proactive_do_not_disturb_start
+            proactive_do_not_disturb_end = config.proactive_do_not_disturb_end
+            time_format = "%H:%M"
+            dnd_start_time_obj = datetime.datetime.strptime(proactive_do_not_disturb_start, time_format).time()
+            dnd_end_time_obj = datetime.datetime.strptime(proactive_do_not_disturb_end, time_format).time() #处理
+            print(
+                f"DEBUG Check: Current time: {current_time_hm_only.strftime(time_format)}, DND Period: {proactive_do_not_disturb_start} - {proactive_do_not_disturb_end}")
+            if dnd_start_time_obj > dnd_end_time_obj:  # 跨夜
+                if current_time_hm_only >= dnd_start_time_obj or current_time_hm_only < dnd_end_time_obj:
+                    is_currently_do_not_disturb = True
+            else:  # 不跨夜
+                if dnd_start_time_obj <= current_time_hm_only < dnd_end_time_obj:
+                    is_currently_do_not_disturb = True
+            if is_currently_do_not_disturb:
+                print(
+                    f"勿扰时间")
+            else:
+                print(f"开始主动发送消息")
+                asyncio.create_task(self.proactive_send())
+
+        else:
+            print(f"ERROR Inactivity: Could not send greeting ")
+            return
 
 
+    async def _proactive_loop(self):
+
+        await self._load_config(self.test_target_user_id, "person")  # 读取配置
+        config = self.waifu_cache[self.test_target_user_id]
+
+        if config.proactive_greeting_enabled:  #主动发言模式开启
+            self.ap.logger.info(
+                f"WaifuPlugin: Proactive loop started.")
+            initial_loop_delay = 30  # 冷启动
+
+            try:
+                await asyncio.sleep(initial_loop_delay)
+            except asyncio.CancelledError:
+                self.ap.logger.info("WaifuPlugin: Proactive greeting loop cancelled during initial delay.")
+                return
+
+            while True:
+                self.ap.logger.info(f"WaifuPlugin Loop: Running inactivity check for user {self.test_target_user_id}...")
+                try:
+                    probability_to_greet = config.proactive_greeting_probability
+                    self.ap.logger.info(
+                        f"probability:{probability_to_greet}")
+                    if random.randint(1, 100) <= probability_to_greet:  #几率
+                        await self._check_user_inactivity()  #探测是否满足发言条件
+
+
+                except asyncio.CancelledError:
+                    self.ap.logger.info("WaifuPlugin: Proactive loop cancelled during check/greet.")
+                    break  # 收到取消信号，退出循环
+                except Exception as e_loop:
+                    self.ap.logger.error(f"WaifuPlugin ERROR in proactive greeting loop: {e_loop}")
+                    traceback.print_exc()  # 打印错误
+
+                self.ap.logger.info(
+                    f"WaifuPlugin Loop: Check finished. Sleeping for {self.proactive_check_interval_seconds} seconds...")
+                try:
+                    await asyncio.sleep(self.proactive_check_interval_seconds)
+                except asyncio.CancelledError:
+                    self.ap.logger.info("WaifuPlugin: Proactive greeting loop cancelled during sleep.")
+                    break  # 退出循环
 
 
 
@@ -279,8 +398,6 @@ class WaifuPlugin(BasePlugin):
 
     async def destroy(self):
         self.ap.logger.warning("Waifu插件正在退出....")
-
-
     # @handler(NormalMessageResponded)
     # async def normal_message_responded(self, ctx: EventContext):
     #     self.ap.logger.info(f"LangGPT的NormalMessageResponded: {str(ctx.event.response_text)}。")
@@ -368,11 +485,11 @@ class WaifuPlugin(BasePlugin):
             await self._request_group_reply(ctx)
             ctx.prevent_default()  # 阻止 LangBot 的默认回复行为
 
-    async def _load_config(self, launcher_id: str, launcher_type: str):
+    async def _load_config(self, launcher_id: str, launcher_type: str):    ##加载配置
         self.waifu_cache[launcher_id] = WaifuCache(self.ap, launcher_id, launcher_type)
         cache = self.waifu_cache[launcher_id]
 
-        config_mgr = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu", launcher_id)
+        config_mgr = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu", launcher_id) #读取用户配置
         await config_mgr.load_config(completion=True)
 
         character = config_mgr.data.get("character", f"default")
@@ -400,6 +517,17 @@ class WaifuPlugin(BasePlugin):
         cache.blacklist = config_mgr.data.get("blacklist", [])
         cache.langbot_group_rule = config_mgr.data.get("langbot_group_rule", False)
         cache.ignore_prefix = config_mgr.data.get("ignore_prefix", [])
+
+        cache.proactive_greeting_enabled = config_mgr.data.get("proactive_greeting_enabled", False)
+        cache.proactive_greeting_probability = config_mgr.data.get("proactive_greeting_probability", 0)
+        cache.proactive_min_inactive_hours = config_mgr.data.get("proactive_min_inactive_hours", 3.0)
+        cache.proactive_max_inactive_hours = config_mgr.data.get("proactive_max_inactive_hours", 4.0)
+        if cache.proactive_max_inactive_hours < cache.proactive_min_inactive_hours:
+            cache.proactive_max_inactive_hours = cache.proactive_min_inactive_hours
+
+        cache.proactive_do_not_disturb_start = config_mgr.data.get("proactive_do_not_disturb_start","23:00")
+        cache.proactive_do_not_disturb_end = config_mgr.data.get("proactive_do_not_disturb_end","08:00")
+
 
         await cache.memory.load_config(character, launcher_id, launcher_type)
         await cache.value_game.load_config(character, launcher_id, launcher_type)
@@ -671,13 +799,15 @@ class WaifuPlugin(BasePlugin):
         launcher_id = ctx.event.launcher_id
         config = self.waifu_cache[launcher_id]
 
-        asyncio.create_task(self._test_proactive_send())   #测试：主动生成消息
-
 
         if config.unreplied_count > 0:
             if launcher_id not in self.waifu_cache or not config.response_timers_flag:
-                config.response_timers_flag = True
-             #   asyncio.create_task(self._delayed_person_reply(ctx))  #先屏蔽正常功能
+                if self.generator_model_ready:
+                    config.response_timers_flag = True
+
+                  # asyncio.create_task(self._delayed_person_reply(ctx))   #创建任务
+
+
 
     async def _delayed_person_reply(self, ctx: EventContext):
         launcher_id = ctx.event.launcher_id
@@ -731,7 +861,7 @@ class WaifuPlugin(BasePlugin):
         system_prompt = config.memory.to_custom_names(config.cards.generate_system_prompt())
         self._generator.set_speakers([config.memory.assistant_name])
         response = await self._generator.return_chat(user_prompt, system_prompt)   #发消息
-        await config.memory.save_memory(role="assistant", content=response)
+        await config.memory.save_memory(role="assistant", content=response)  #存入消息对话
 
         if config.personate_mode:
             await self._send_personate_reply(ctx, response)

@@ -41,3 +41,12 @@ intervals: [] # 列表，自动触发旁白推进剧情的时间间隔，单位�
 person_response_delay: 0 # 私聊消息合并等待时间（秒）。
 continued_rate: 0 # 自动触发回复后继续发言的机率。
 continued_max_count: 2 # 私聊最大延续发言次数。
+
+#主动发言模式
+proactive_greeting_enabled: true # 是否开启主动发言
+proactive_greeting_probability: 50 # 0-100 触发主动发言几率
+proactive_min_inactive_hours: 3  #不活跃的最小小时数
+
+
+proactive_do_not_disturb_start: "23:00" # 晚上11点
+proactive_do_not_disturb_end: "08:00"   # 早上8点

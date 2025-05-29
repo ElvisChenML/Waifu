@@ -4,7 +4,8 @@ import json
 import os
 import re
 import math
-from datetime import datetime, timedelta
+from datetime import datetime
+
 from pkg.core import app
 from collections import Counter,defaultdict
 from plugins.Waifu.cells.text_analyzer import TextAnalyzer
@@ -1591,6 +1592,56 @@ class Memory:
             conversations_str += f"{date_time_str}{role}说：“{content}”。"
 
         return conversations_str
+
+
+    def get_lastest_time(self, conversations: typing.List[llm_entities.Message]):
+        if not conversations:  # 先检查列表是否为空
+            return None  # 或者抛出异常，或者返回一个特定的“未找到”值
+
+        last_message_object = conversations[-1]  # 获取最后一个 Message 对象
+
+        if not hasattr(last_message_object, 'content') or not isinstance(last_message_object.content, str):
+            # 如果最后一个消息没有 content 属性，或者 content 不是字符串
+            return None
+
+        last_message_content_str = last_message_object.content  # 获取其 content 字符串
+        date_time_pattern = re.compile(r"\[(\d{2})年(\d{2})月(\d{2})日(上午|下午)?(\d{2})时(\d{2})分]")
+
+        match_obj = date_time_pattern.search(last_message_content_str)  # 使用 search 在整个字符串中查找
+
+        if not match_obj:
+            print(f"DEBUG get_latest_time: No time pattern found in content: '{last_message_content_str}'")
+            return None  # 没有找到匹配的时间字符串
+
+        year_yy_str = match_obj.group(1)
+        month_str = match_obj.group(2)
+        day_str = match_obj.group(3)
+        am_pm_indicator = match_obj.group(4)  # 可能为 None
+        hour_str = match_obj.group(5)
+        minute_str = match_obj.group(6)
+        # --- 结束修正点 ---
+
+        # --- 数据清洗和转换 ---
+        year_yy = int(year_yy_str)  # "25"
+        month = int(month_str)  # "05"
+        day = int(day_str)  # "29"
+        hour_from_str = int(hour_str)  # "21"
+        minute = int(minute_str)  # "00"
+
+        full_year = 2000 + year_yy
+        hour_24 = hour_from_str
+
+        if am_pm_indicator == "上午":
+            if hour_from_str == 12:  # 上午12点 (midnight) -> 0点
+                hour_24 = 0
+        elif am_pm_indicator == "下午":
+            if hour_from_str < 12:  # 下午1点 (13时) 到 下午11点 (23时)
+                hour_24 = hour_from_str + 12
+
+        parsed_datetime = datetime(full_year, month, day, hour_24, minute, 0)
+        print(f"DEBUG get_latest_time: {parsed_datetime}")
+        return parsed_datetime
+
 
     def get_unreplied_msg(self, unreplied_count: int) -> typing.Tuple[int, typing.List[llm_entities.Message]]:
         count = 0  # 未回复的数量 + 穿插的自己发言的数量 用以正确区分 replied 及 unreplied 分界线
