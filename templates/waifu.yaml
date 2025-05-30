@@ -43,10 +43,11 @@ continued_rate: 0 # 自动触发回复后继续发言的机率。
 continued_max_count: 2 # 私聊最大延续发言次数。
 
 #主动发言模式
-proactive_greeting_enabled: true # 是否开启主动发言
+target_user_id : " "  #填入你想要bot主动发送的目标的qq号，如"13131313"（不是bot的qq！）
+proactive_greeting_enabled: True # 是否开启主动发言  ， 此模式依赖于长期记忆 ， 必须开启summarization_mode长期记忆模式
 proactive_greeting_probability: 50 # 0-100 触发主动发言几率
-proactive_min_inactive_hours: 3  #不活跃的最小小时数
+proactive_min_inactive_hours: 2.0 #不活跃的最小小时数 （最低0.5,要修改则去main.py里修改loop_time 的值）
 
+proactive_do_not_disturb_start: "23:00" # 勿扰时间开始  格式 "xx:xx "  二十四小时制
+proactive_do_not_disturb_end: "08:00" # 勿扰时间结束  格式 "xx:xx "
 
-proactive_do_not_disturb_start: "23:00" # 晚上11点
-proactive_do_not_disturb_end: "08:00"   # 早上8点
