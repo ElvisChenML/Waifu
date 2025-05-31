@@ -25,6 +25,7 @@ from plugins.Waifu.systems.narrator import Narrator
 from plugins.Waifu.systems.value_game import ValueGame
 from plugins.Waifu.organs.thoughts import Thoughts
 from pkg.platform.types.message import MessageChain, Plain, logger
+from plugins.Waifu.organs.proactive import ProactiveGreeter
 
 
 COMMANDS = {
@@ -94,16 +95,12 @@ class WaifuCache:
         self.group_message_chain = None
         self.blacklist = []
         self.ignore_prefix = []
-
         self.proactive_greeting_enabled: bool = False
         self.proactive_greeting_probability: int = 0
         self.proactive_min_inactive_hours = 3.0
         self.proactive_do_not_disturb_start = "23:00"
         self.proactive_do_not_disturb_end = "8:00"
-       # self.target_user_id = ""
-
-
-
+        self.loop_time = 1800
 
 @runner.runner_class("waifu-mode")
 class WaifuRunner(runner.RequestRunner):
@@ -118,37 +115,18 @@ class WaifuRunner(runner.RequestRunner):
 @register(name="Waifu", description="Cuter than real waifu!", version="1.9.8", author="ElvisChenML")
 class WaifuPlugin(BasePlugin):
     def __init__(self, host: APIHost):
-
-
         super().__init__(host)
-      #  self.proactive_check_interval_seconds = 60 # 测试循环间隔
         self.ap = host.ap
+        self.host = host
         self._ensure_required_files_exist()
         self._generator = Generator(self.ap)
         self.waifu_cache: typing.Dict[str, WaifuCache] = {}
         self._set_permissions_recursively("data/plugins/Waifu/", 0o777)
+        asyncio.create_task(self.initialize())
+        self.greeter = ProactiveGreeter(self.ap, self._load_config, self.host,self.waifu_cache)
 
-        enabled_adapters = self.host.get_platform_adapters()
-
-        #self.first_adapter = enabled_adapters[0]
-
-
-        for adapter in enabled_adapters:
-            if isinstance(adapter, AiocqhttpAdapter): # 选择qq适配器
-                self.first_adapter = adapter
-                self.ap.logger.info(f"获取到qqapdater :{self.first_adapter}")
-                break
-            else:
-                self.ap.logger.error(f"Can't find apdater for qq!!")
-
-        print("WaifuPlugin: __init__ completed.")
-
-
-
-    async def initialize(self):  #重写初始化
+    async def initialize(self):
         await super().initialize()
-
-        #初始化 Generator 的模型配置 ---
         if hasattr(self, '_generator') and hasattr(self._generator, '_initialize_model_config'):
             self.ap.logger.info("WaifuPlugin: Initializing Generator's model configuration...")
             try:
@@ -162,282 +140,6 @@ class WaifuPlugin(BasePlugin):
                 self.ap.logger.error(traceback.format_exc())
         else:
             self.ap.logger.error("WaifuPlugin: _generator or _generator._initialize_model_config not found!")
-
-
-        global_config = "data/plugins/Waifu/config/waifu.yaml"
-        self.target_qq = self._load_target_qq_from_global_config_file(global_config)  #在plugins/Waifu/templates/waifu.yaml 读取qq号
-        print(self.target_qq)
-
-        asyncio.create_task(self._proactive_loop())   #创建检测用户活跃任务
-        self.ap.logger.info(f"start to proactive_loop")
-
-
-
-
-
-    ##读取tag和summary
-    def _get_tag_summary(self):
-
-        try:
-            fixed_file_path = f"data/plugins/Waifu/data/memories_{self.target_qq}.json"
-            print(f"Attempting to read LTM file: {fixed_file_path}")
-        except Exception as e:
-            print(f"ERROR: Attribute 'target_qq' not found on self: {e}\\n")
-            return None, None
-
-
-        try:
-            with open(fixed_file_path, "r", encoding="utf-8") as file:
-                data = json.load(file)  # 解析整个JSON数据
-
-            if "long_term" in data and isinstance(data["long_term"], list) and data["long_term"]:
-                latest_entry = data["long_term"][-1]  # 获取列表的最后一个元素
-                print(f"latest_entry:{latest_entry}")
-
-                if isinstance(latest_entry, dict) and "summary" in latest_entry and "tags" in latest_entry:
-                    summary_text = latest_entry["summary"]
-                    tags_list = latest_entry["tags"]
-
-                    processed_summary = summary_text   ## ----处理summary_text
-                    status_tracking_marker = "状态追踪："
-                    important_affairs_marker = "重要事务："
-                    status_tracking_start_index = summary_text.find(status_tracking_marker)
-
-                    if status_tracking_start_index != -1:
-                        narrative_part = summary_text[:status_tracking_start_index].strip()
-                        important_affairs_start_index = summary_text.find(important_affairs_marker,
-                                                                          status_tracking_start_index)
-                        if important_affairs_start_index != -1:
-                            # 提取 "重要事务：" 之后的内容
-                            important_affairs_content = summary_text[important_affairs_start_index + len(
-                                important_affairs_marker):].strip()   # 去掉多余的换行
-                            lines = [line.strip() for line in important_affairs_content.split('\n') if line.strip()]
-                            important_affairs_part_extracted = "\n我们之前提到的一些重要事情有：" + "\n    ".join(
-                                lines[:3])  # 前3个事务
-                            processed_summary = f"{narrative_part}{important_affairs_part_extracted}"
-                        else:
-                            processed_summary = narrative_part  # 只用叙事部分
-                    else:
-                        print(
-                            "DEBUG LTM Processed: '状态追踪：' marker not found. Using summary as is (or potentially truncated).")
-                    return processed_summary, tags_list    #返回tag和summary
-                else:
-                    print("ERROR: Latest LTM entry has unexpected format or missing 'summary'/'tags'.")
-                    return None, None
-            else:
-                print("ERROR: No 'long_term' list found in the JSON data, or it is empty.")
-                return None, None
-        except FileNotFoundError:
-            print(f"ERROR: File not found at path: {fixed_file_path}")
-            return None, None
-        except json.JSONDecodeError as e:
-            print(f"ERROR: Could not decode JSON from file. Error: {e}")
-            return None, None
-        except Exception as e:
-            print(f"ERROR: An unexpected error occurred: {e}")
-            traceback.print_exc()
-            return None, None
-
-
-
-    # async def _get_target_adapter_for_test(self): #获取机器人实例
-    #     if not hasattr(self.host, 'get_platform_adapters'):
-    #         print("WaifuPlugin Test ERROR: self.host has no 'get_platform_adapters' method.")
-    #         return None
-    #
-
-    #    # platform_manager = self.ap.platform_mgr
-
-    #    # runtime_bot = await platform_manager.get_bot_by_uuid(self.test_target_bot_uuid)
-    #   #  return runtime_bot.adapter
-
-
-
-
-    async def proactive_greeting(self):   ##主动问候生成词
-
-        summary_text, tags_list =  self._get_tag_summary()  #获取tag和summary
-        #filtered_tags = [tag for tag in tags_list if not tag.startswith("PADDING:") and not tag.startswith("DATETIME:")] # 简单筛选 tags
-
-        await self._load_config(self.target_qq, "person")
-        config = self.waifu_cache[self.target_qq]
-
-        raw_prompt = config.cards.generate_system_prompt()   #获取角色卡
-        full_card_prompt_text = config.memory.to_custom_names(raw_prompt)
-
-        system_prompt_for_summarizing_card = (
-            f"请阅读这张角色卡，并从中提取出最能代表该角色核心性格、行为方式关键要点。"
-            f"总结应非常简短精炼\n"
-            f"请直接输出大概一句话的文本摘要\n"
-        )
-        if self._generator and self._generator.selected_model_info:
-            try:
-                if hasattr(self._generator, 'set_speakers'):
-                    self._generator.set_speakers([])  # 清空或不设置特定speaker
-                card_summary_text = await self._generator.return_chat(
-                    request=full_card_prompt_text,
-                    system_prompt=system_prompt_for_summarizing_card  # 指示LLM进行总结的系统提示
-                )
-
-            except Exception as e:
-                print(f"ERROR during LLM call for card summary: {e}")
-        else:
-            print("ERROR: Generator or its model is not ready for card summary call.")
-
-        conversations = config.memory.get_normalize_short_term_memory()
-        conversation = conversations[-5:]  #获取历史对话切片
-        formatted_history_lines = []
-        for msg_obj in conversation:
-            content_text = str(msg_obj.content).strip()
-            formatted_history_lines.append(f"\n{content_text}")
-
-        if formatted_history_lines:
-            recent_dialogue_str = "\n".join(formatted_history_lines)   #简单处理对话
-
-        summary_snippet = summary_text[:150] + "..." if len(summary_text) > 150 else summary_text  # 取 summary 的前一部分作为上下文，避免过长
-        system_prompt_with_ltm = (
-            f"你的角色设定是这样的:'{card_summary_text}\n'"
-           # f"对方可能有一段时间没有说话了。"
-            f"我们最近的对话中，有一个总结大致是这样的：'{summary_snippet}'\n"
-         #   f"并且涉及到的一些话题标签有：'{filtered_tags}'。\n"  
-            f"作为参考，以下是我们最近的一些对话内容：[对话开始\n{recent_dialogue_str}\n对话结束]\n\n" 
-            f"请你基于这些信息，自然地对他发起一个主动的问候或对话。"
-            f"请直接说出非常简短的问候内容，大约一句话，简短精炼，不要带上你的名字作为前缀。"
-        )
-        user_request_for_greeting = " "
-        response = await self._generator.return_chat(
-            request=user_request_for_greeting,
-            system_prompt=system_prompt_with_ltm
-        )
-        await config.memory.save_memory(role="assistant", content=response)  #主动发言存入到历史记忆当中
-        return response  #返回LLM 回应
-
-
-    async def proactive_send(self):  #主动发送消息功能
-        try:
-            #adapter_instance = await self._get_target_adapter_for_test()
-            adapter_instance = self.first_adapter   #获取适配器
-
-            if adapter_instance:
-                message_to_send_str = await self.proactive_greeting()  #返回message
-                print(f"wait to send{self.target_qq}\n")
-
-                await adapter_instance.send_message(
-                    target_type="person",
-                    target_id=self.target_qq,
-                    message=platform_message.MessageChain([message_to_send_str])
-                )
-            else:
-                print("ERROR: Could not get adapter instance for proactive send.")
-
-        except Exception as e:
-            print(f"ERROR during proactive send: {e}")
-            traceback.print_exc()
-        print("proactive_send() task completed.")
-
-
-    async def _check_user_inactivity(self):  #检测用户活跃时长
-
-        await self._load_config(self.target_qq, "person")  # 读取配置
-        config = self.waifu_cache[self.target_qq]
-        current_time = datetime.datetime.now()
-        last_message_time = config.memory.get_lastest_time(config.memory.short_term_memory)  #时间差值
-        if not last_message_time:
-            print(f"Could not extract last message time for user")
-            return
-
-        time_difference = current_time - last_message_time
-        inactive_minutes = time_difference.total_seconds()
-        inactive_minutes_float = float(inactive_minutes) / 60
-
-        inactivity_threshold_minutes = config.proactive_min_inactive_hours
-        inactivity_threshold_minutes_float = float(inactivity_threshold_minutes) * 60
-
-        print(inactive_minutes_float)
-        print(inactivity_threshold_minutes_float)
-
-        if inactive_minutes_float > inactivity_threshold_minutes_float:  #差值大于规定最小时间
-
-            current_time_hm_only = current_time.time()
-            proactive_do_not_disturb_start = config.proactive_do_not_disturb_start
-            proactive_do_not_disturb_end = config.proactive_do_not_disturb_end
-            time_format = "%H:%M"
-            dnd_start_time_obj = datetime.datetime.strptime(proactive_do_not_disturb_start, time_format).time()
-            dnd_end_time_obj = datetime.datetime.strptime(proactive_do_not_disturb_end, time_format).time()
-
-            is_currently_do_not_disturb = False
-            print(
-                f"Check: Current time: {current_time_hm_only.strftime(time_format)}, Period: {proactive_do_not_disturb_start} - {proactive_do_not_disturb_end}")
-            if dnd_start_time_obj > dnd_end_time_obj:  # 跨夜
-                if current_time_hm_only >= dnd_start_time_obj or current_time_hm_only < dnd_end_time_obj:
-                    is_currently_do_not_disturb = True
-            else:  # 不跨夜
-                if dnd_start_time_obj <= current_time_hm_only < dnd_end_time_obj:
-                    is_currently_do_not_disturb = True
-            if is_currently_do_not_disturb:
-                print(
-                    f"勿扰时间")
-            else:
-                print(f"bot开始主动发送消息!")
-                asyncio.create_task(self.proactive_send())  #主动发消息
-        else:
-            print(f"ERROR Inactivity: Could not send greeting ")
-            return
-
-
-    async def _proactive_loop(self):
-        print("!!_proactive_loop:!!\n")
-        if not self.target_qq:  # 检查是否为空或只包含空白
-            print("ERROR:self.target_qq is not configured correctly. .\n")
-            self.ap.logger.error("self.target_qq is invalid..\n")
-            return # 直接退出循环任务
-
-        await self._load_config(self.target_qq, "person")  # 读取配置
-
-
-        config = self.waifu_cache[self.target_qq]
-        self.ap.logger.info(f"proactive_mode : {config.proactive_greeting_enabled} ")
-        self.ap.logger.info(f"summarization_mode : {config.summarization_mode} ")
-
-        if config.proactive_greeting_enabled and config.summarization_mode:
-            self.ap.logger.info(
-                f"WaifuPlugin: Proactive loop started.")
-            initial_loop_delay = 30  # 冷启动
-
-            try:
-                await asyncio.sleep(initial_loop_delay)
-            except asyncio.CancelledError:
-                self.ap.logger.info("WaifuPlugin:cancelled during initial delay.")
-                return
-
-            while True:  #循环检测用户状态
-                self.ap.logger.info(f"WaifuPlugin Loop: Running inactivity check for user {self.target_qq}...")
-                try:
-                    probability_to_greet = config.proactive_greeting_probability
-                    self.ap.logger.info(
-                        f"probability:{probability_to_greet}")
-                    if random.randint(1, 100) <= probability_to_greet:  #几率
-                        await self._check_user_inactivity()  #进入检测用户活跃时间
-
-
-                except asyncio.CancelledError:
-                    self.ap.logger.info("WaifuPlugin: Proactive loop cancelled during check/greet.")
-                    break
-                except Exception as e_loop:
-                    self.ap.logger.error(f"WaifuPlugin ERROR in proactive greeting loop: {e_loop}")
-                    traceback.print_exc()  # 打印错误
-
-                loop_time = 1800  #每三十分钟进行一次检查
-
-                self.ap.logger.info(f"WaifuPlugin Loop: Check finished. Sleeping for {loop_time} seconds...")
-
-                try:
-                    await asyncio.sleep(loop_time)
-                except asyncio.CancelledError:
-                    self.ap.logger.info("WaifuPlugin: Proactive greeting loop cancelled during sleep.")
-                    break  # 退出循环
-
-#---------
 
 
     async def destroy(self):
@@ -568,10 +270,9 @@ class WaifuPlugin(BasePlugin):
         cache.proactive_max_inactive_hours = config_mgr.data.get("proactive_max_inactive_hours", 4.0)
         if cache.proactive_max_inactive_hours < cache.proactive_min_inactive_hours:
             cache.proactive_max_inactive_hours = cache.proactive_min_inactive_hours
-
         cache.proactive_do_not_disturb_start = config_mgr.data.get("proactive_do_not_disturb_start","23:00")
         cache.proactive_do_not_disturb_end = config_mgr.data.get("proactive_do_not_disturb_end","08:00")
-     #   cache.target_user_id = config_mgr.data.get("target_user_id","")
+        cache.loop_time = config_mgr.data.get("loop_time",1800)
 
 
         await cache.memory.load_config(character, launcher_id, launcher_type)
@@ -582,8 +283,8 @@ class WaifuPlugin(BasePlugin):
         self._set_jail_break(cache, "off")
         if cache.jail_break_mode in ["before", "after", "end", "all"]:
             self._set_jail_break(cache, cache.jail_break_mode)
-
         self._set_permissions_recursively("data/plugins/Waifu/", 0o777)
+
 
     async def _handle_command(self, ctx: EventContext) -> typing.Tuple[bool, bool]:
         need_assistant_reply = False
@@ -891,7 +592,6 @@ class WaifuPlugin(BasePlugin):
             config.continued_count = 0
 
             config.response_timers_flag = False
-          #  await self._person_reply(ctx)  # 检查是否回复期间又满足响应条件
 
         except Exception as e:
             self.ap.logger.error(f"Error occurred during person reply: {e}")
@@ -1200,39 +900,3 @@ class WaifuPlugin(BasePlugin):
 
 
 
-    def _load_target_qq_from_global_config_file(self,file_path: str) -> typing.Optional[str]:  #加载plugins/Waifu/templates/waifu.yaml 里配置的qq号
-
-        if not os.path.exists(file_path):
-            print(f"ERROR: file not found: {file_path}\\n")
-            return None
-
-        config_data: typing.Optional[dict] = None
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                config_data = yaml.safe_load(f)
-        except yaml.YAMLError as ye:
-            print(f"ERROR: YAML parsing error in {file_path}: {ye}\\n")
-            return None
-        except IOError as ioe:
-            print(f"ERROR: Could not read file {file_path}: {ioe}\\n")
-            return None
-        except Exception as e_file:
-            print(f"ERROR: Unexpected error opening/reading file {file_path}: {e_file}\\n")
-            traceback.print_exc()
-            return None
-
-        if not config_data or not isinstance(config_data, dict):
-            print(f"ERROR: file {file_path} is empty or not a valid YAML dictionary after loading.\\n")
-            return None
-
-        target_qq_from_config = config_data.get("target_user_id")  #获取qq号
-
-        if target_qq_from_config and isinstance(target_qq_from_config, str) and target_qq_from_config.strip():
-
-            cleaned_target_qq = target_qq_from_config.strip()
-            print(f"Successfully loaded default_proactive_target_qq: {cleaned_target_qq}")
-            return cleaned_target_qq
-        else:
-            print(
-                f"ERROR: 'target_qq' not found, or is empty in {file_path}. Value was: '{target_qq_from_config}'\\n")
-            return None

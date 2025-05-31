@@ -40,12 +40,11 @@ class Generator:
         self.selected_model_info = None
         self.model_config = {}
 
+
     async def _initialize_model_config(self):
         """Loads or creates the model configuration and sets the selected model."""
         await self._load_or_create_model_config()
         await self._set_selected_model()
-        print(
-            f"self.selected_model_info is: {self.selected_model_info}")
 
     async def _load_or_create_model_config(self):
         """加载或创建 model_config.yaml，仅当模型列表变化时才更新"""
@@ -311,9 +310,7 @@ class Generator:
 
     @handle_errors
     async def return_string_without_jail_break(self, question: str, system_prompt: str = None) -> None:
-        await self._initialize_model_config()   #修复长期记忆无法正确调用selected_model_info（奇怪bug，必须再初始化一次）
-
-        print(self.selected_model_info)
+        await self._initialize_model_config()
         if not self.selected_model_info:
             error_msg = "Waifu 插件未能找到或选定任何可用的大语言模型。请确保LangBot中已加载模型，并检查插件配置。"
             self.ap.logger.error(error_msg)
