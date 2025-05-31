@@ -1606,11 +1606,9 @@ class Memory:
 
         last_message_content_str = last_message_object.content  # 获取其 content 字符串
         date_time_pattern = re.compile(r"\[(\d{2})年(\d{2})月(\d{2})日(上午|下午)?(\d{2})时(\d{2})分]")
-
         match_obj = date_time_pattern.search(last_message_content_str)  # 使用 search 在整个字符串中查找
-
         if not match_obj:
-            print(f"DEBUG get_latest_time: No time pattern found in content: '{last_message_content_str}'")
+            self.ap.logger.error(f"DEBUG get_latest_time: No time pattern found in content: '{last_message_content_str}'")
             return None  # 没有找到匹配的时间字符串
 
         year_yy_str = match_obj.group(1)
@@ -1619,18 +1617,13 @@ class Memory:
         am_pm_indicator = match_obj.group(4)  # 可能为 None
         hour_str = match_obj.group(5)
         minute_str = match_obj.group(6)
-        # --- 结束修正点 ---
-
-        # --- 数据清洗和转换 ---
         year_yy = int(year_yy_str)  # "25"
         month = int(month_str)  # "05"
         day = int(day_str)  # "29"
         hour_from_str = int(hour_str)  # "21"
         minute = int(minute_str)  # "00"
-
         full_year = 2000 + year_yy
         hour_24 = hour_from_str
-
         if am_pm_indicator == "上午":
             if hour_from_str == 12:  # 上午12点 (midnight) -> 0点
                 hour_24 = 0
@@ -1639,7 +1632,6 @@ class Memory:
                 hour_24 = hour_from_str + 12
 
         parsed_datetime = datetime(full_year, month, day, hour_24, minute, 0)
-        print(f"DEBUG get_latest_time: {parsed_datetime}")
         return parsed_datetime
 
 

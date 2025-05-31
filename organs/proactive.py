@@ -347,8 +347,8 @@ class ProactiveGreeter:
                 content = f.read()
             return content
         except FileNotFoundError:
-            print(f"Error: File not found at {file_path}")
+            self.ap.logger.error(f"Error: File not found at {file_path}")
             return None
         except Exception as e:
-            print(f"Error reading file {file_path}: {e}")
+            self.ap.logger.error(f"Error reading file {file_path}: {e}")
             return None
