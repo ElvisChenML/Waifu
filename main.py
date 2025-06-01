@@ -123,7 +123,9 @@ class WaifuPlugin(BasePlugin):
         self.waifu_cache: typing.Dict[str, WaifuCache] = {}
         self._set_permissions_recursively("data/plugins/Waifu/", 0o777)
         asyncio.create_task(self.initialize())
-        self.greeter = ProactiveGreeter(self.ap, self._load_config, self.host,self.waifu_cache)
+        self.greeter = ProactiveGreeter(self.ap,self.host,
+                                        self.waifu_cache)  #插件初始化时创建proactive任务
+
 
     async def initialize(self):
         await super().initialize()
@@ -131,6 +133,7 @@ class WaifuPlugin(BasePlugin):
             self.ap.logger.info("WaifuPlugin: Initializing Generator's model configuration...")
             try:
                 await self._generator._initialize_model_config()  # 主动调用初始化方法
+
                 if self._generator.selected_model_info:
                     self.generator_model_ready = True
                     self.ap.logger.info(
@@ -141,9 +144,9 @@ class WaifuPlugin(BasePlugin):
         else:
             self.ap.logger.error("WaifuPlugin: _generator or _generator._initialize_model_config not found!")
 
-
     async def destroy(self):
         self.ap.logger.warning("Waifu插件正在退出....")
+        await self.greeter.stop_main_task() #结束循环任务
     # @handler(NormalMessageResponded)
     # async def normal_message_responded(self, ctx: EventContext):
     #     self.ap.logger.info(f"LangGPT的NormalMessageResponded: {str(ctx.event.response_text)}。")
@@ -232,9 +235,9 @@ class WaifuPlugin(BasePlugin):
             ctx.prevent_default()  # 阻止 LangBot 的默认回复行为
 
     async def _load_config(self, launcher_id: str, launcher_type: str):    ##加载配置
+
         self.waifu_cache[launcher_id] = WaifuCache(self.ap, launcher_id, launcher_type)
         cache = self.waifu_cache[launcher_id]
-
         config_mgr = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu", launcher_id) #读取用户配置
         await config_mgr.load_config(completion=True)
 
@@ -560,7 +563,6 @@ class WaifuPlugin(BasePlugin):
         self.ap.logger.info(f"wait person {launcher_id} for {config.person_response_delay}s")
         await asyncio.sleep(config.person_response_delay)
         self.ap.logger.info(f"generating person {launcher_id} response")
-
         try:
             config.unreplied_count = 0
             if config.story_mode_flag:
