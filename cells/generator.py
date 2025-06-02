@@ -310,7 +310,6 @@ class Generator:
 
     @handle_errors
     async def return_string_without_jail_break(self, question: str, system_prompt: str = None) -> None:
-        await self._initialize_model_config()
         if not self.selected_model_info:
             error_msg = "Waifu 插件未能找到或选定任何可用的大语言模型。请确保LangBot中已加载模型，并检查插件配置。"
             self.ap.logger.error(error_msg)

@@ -1,3 +1,5 @@
+import asyncio
+import traceback
 import typing
 import numpy as np
 import json
@@ -156,6 +158,27 @@ class Memory:
         self._last_l3_recall_memories = []
         self._last_l4_recall_memories = []
         self._last_l5_recall_memories = []
+        self.generator_model_ready = False
+        asyncio.create_task(self.initialize())
+        
+        
+    async def initialize(self):
+        if hasattr(self, '_generator') and hasattr(self._generator, '_initialize_model_config'):
+            self.ap.logger.info("Memory：: Initializing Generator's model configuration...")
+            try:
+                await self._generator._initialize_model_config()  # 主动调用初始化方法
+                if self._generator.selected_model_info:
+                    self.ap.logger.info(
+                        f"Memory：: Generator model selected: {self._generator.selected_model_info.model_entity.name}")
+
+                self.generator_model_ready = True
+
+            except Exception as e:
+                self.ap.logger.error(f"Memory：: Error during Generator model initialization: {e}")
+                self.ap.logger.error(traceback.format_exc())
+        else:
+            self.ap.logger.error("Memory：: _generator or _generator._initialize_model_config not found!")
+
 
     async def load_config(self, character: str, launcher_id: str, launcher_type: str):
         waifu_config = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu", launcher_id)
@@ -200,13 +223,18 @@ class Memory:
         # 生成Tags：
         # 1、短期记忆转换长期记忆时：进行记忆总结
         # 2、对话提取记忆时：直接拼凑末尾对话
-        if summary_flag:
-            (memory,tags) = await self._generate_summary(conversations)
-            return (memory,tags)
+        if self.generator_model_ready:
+            if summary_flag:
+                (memory,tags) = await self._generate_summary(conversations)
+                return (memory,tags)
 
-        memory = self.get_last_content(conversations,10)
-        tags = await self._generate_tags(memory)
-        return (memory, tags)
+            memory = self.get_last_content(conversations,10)
+            tags = await self._generate_tags(memory)
+            return (memory, tags)
+        else:
+            self.ap.logger.warning(f"Error generator_model_ready is not ready!")
+            return ("", [])
+
 
     def _remove_prefix_suffix_from_tag(self,tag:str) ->str:
         t = tag.replace("\"","").replace("\"","").replace("[","").replace("]","").replace("\n","")
@@ -220,16 +248,20 @@ class Memory:
         return t
 
     def _get_tags_from_str_array(self,tag_word:str) ->typing.List[str]:
-        tag_words = tag_word.removeprefix("[").removesuffix("]").split(",")
-        result = []
-        for tag in tag_words:
-            t = self._remove_prefix_suffix_from_tag(tag)
-            if t == "":
-                continue
-            if t.count(":") == 0 and t.isalnum():
-                t = t.lower()
-            result.append(t)
-        return result
+        if self.generator_model_ready:
+            tag_words = tag_word.removeprefix("[").removesuffix("]").split(",")
+            result = []
+            for tag in tag_words:
+                t = self._remove_prefix_suffix_from_tag(tag)
+                if t == "":
+                    continue
+                if t.count(":") == 0 and t.isalnum():
+                    t = t.lower()
+                result.append(t)
+            return result
+        else:
+            self.ap.logger.warning(f"Error generator_model_ready is not ready!")
+            return []
 
     async def _generate_tags(self,conversation:str) -> typing.List[str]:
         conversation = conversation.replace("{","").replace("}","")

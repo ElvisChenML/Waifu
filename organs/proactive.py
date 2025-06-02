@@ -66,7 +66,12 @@ class ProactiveGreeter:
                     global_config = "plugins/Waifu/templates/waifu.yaml"
                     self.target_qq = self.load_target_qq(global_config)
                     self.ap.logger.info(f"ProactiveGreeter: 使用 {self.target_qq} 调用 _load_config")
-                else:
+                    if not self.target_qq:
+                        self.ap.logger.warning(
+                            f"未能找到qq号，等待确认")
+                        await asyncio.sleep(initial_loop_delay)
+                        count += 1
+                if self.target_qq:
                     active_waifu_cache_config = None
                     if self._shared_waifu_cache:  # 确保共享缓存引用有效
                         active_waifu_cache_config = self._shared_waifu_cache.get(self.target_qq) #获取当前config最新实例
