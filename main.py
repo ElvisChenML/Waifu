@@ -132,6 +132,8 @@ class WaifuPlugin(BasePlugin):
         if hasattr(self, '_generator') and hasattr(self._generator, '_initialize_model_config'):
             self.ap.logger.info("WaifuPlugin: Initializing Generator's model configuration...")
             try:
+                config_mgr = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu")
+                await config_mgr.load_config(completion=True)
                 await self._generator._initialize_model_config()  # 主动调用初始化方法
 
                 if self._generator.selected_model_info:
