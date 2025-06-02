@@ -182,7 +182,7 @@ class ProactiveGreeter:
             inactive_minutes_float = float(inactive_minutes) / 60
             inactivity_threshold_minutes = active_waifu_cache_config.proactive_min_inactive_hours
             inactivity_threshold_minutes_float = float(inactivity_threshold_minutes) * 60
-            self.ap.logger.info(f"time_difference are {inactivity_threshold_minutes_float}")
+            self.ap.logger.info(f"time_difference are {inactive_minutes_float}")
             self.ap.logger.info(f"inactivity minutes are {inactivity_threshold_minutes_float}")
 
 
