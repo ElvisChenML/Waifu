@@ -3,6 +3,8 @@ import typing
 import re
 import functools
 import os
+from typing import Any, Coroutine
+import asyncio
 import yaml
 from datetime import datetime
 from pkg.core import app
@@ -37,6 +39,7 @@ class Generator:
         self.model_config_path = "data/plugins/Waifu/config/model_config.yaml"
         self.selected_model_info = None
         self.model_config = {}
+
 
     async def _initialize_model_config(self):
         """Loads or creates the model configuration and sets the selected model."""
@@ -306,16 +309,18 @@ class Generator:
         return cleaned_response
 
     @handle_errors
-    async def return_string_without_jail_break(self, question: str, system_prompt: str = None) -> str:
+    async def return_string_without_jail_break(self, question: str, system_prompt: str = None) -> None:
         if not self.selected_model_info:
             error_msg = "Waifu 插件未能找到或选定任何可用的大语言模型。请确保LangBot中已加载模型，并检查插件配置。"
             self.ap.logger.error(error_msg)
             raise ValueError(error_msg)
 
         model_info = self.selected_model_info
-        self.ap.logger.info(f"Waifu 插件使用模型: {model_info.model_entity.name} (UUID: {model_info.model_entity.uuid})")
-        
-        messages = self._get_question_prompts_without_jail_break(question, output_format="text", system_prompt=system_prompt)
+        self.ap.logger.info(
+            f"Waifu 插件使用模型: {model_info.model_entity.name} (UUID: {model_info.model_entity.uuid})")
+
+        messages = self._get_question_prompts_without_jail_break(question, output_format="text",
+                                                                     system_prompt=system_prompt)
 
         self.ap.logger.info("发送请求：\n{}".format(self.messages_to_readable_str(messages)))
 
@@ -324,6 +329,10 @@ class Generator:
 
         self.ap.logger.info("模型回复：\n{}".format(cleaned_response))
         return cleaned_response
+
+
+
+
 
     @handle_errors
     async def return_image(self, content_list: list[llm_entities.ContentElement], system_prompt: str = None) -> str:

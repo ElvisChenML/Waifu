@@ -1,4 +1,7 @@
 import asyncio
+import datetime
+import json
+import traceback
 import typing
 import os
 import yaml
@@ -6,6 +9,7 @@ import random
 import re
 import copy
 import shutil
+from pkg.platform.sources.aiocqhttp import AiocqhttpAdapter
 from pkg.provider import runner
 from pkg.core import app
 from pkg.core import entities as core_entities
@@ -20,6 +24,9 @@ from plugins.Waifu.organs.memories import Memory
 from plugins.Waifu.systems.narrator import Narrator
 from plugins.Waifu.systems.value_game import ValueGame
 from plugins.Waifu.organs.thoughts import Thoughts
+from pkg.platform.types.message import MessageChain, Plain, logger
+from plugins.Waifu.organs.proactive import ProactiveGreeter
+
 
 COMMANDS = {
     "列出命令": "列出目前支援所有命令及介绍，用法：[列出命令]。",
@@ -88,7 +95,12 @@ class WaifuCache:
         self.group_message_chain = None
         self.blacklist = []
         self.ignore_prefix = []
-
+        self.proactive_greeting_enabled: bool = False
+        self.proactive_greeting_probability: int = 0
+        self.proactive_min_inactive_hours = 3.0
+        self.proactive_do_not_disturb_start = "23:00"
+        self.proactive_do_not_disturb_end = "8:00"
+        self.loop_time = 1800
 
 @runner.runner_class("waifu-mode")
 class WaifuRunner(runner.RequestRunner):
@@ -103,23 +115,40 @@ class WaifuRunner(runner.RequestRunner):
 @register(name="Waifu", description="Cuter than real waifu!", version="1.9.8", author="ElvisChenML")
 class WaifuPlugin(BasePlugin):
     def __init__(self, host: APIHost):
+        super().__init__(host)
         self.ap = host.ap
+        self.host = host
         self._ensure_required_files_exist()
         self._generator = Generator(self.ap)
         self.waifu_cache: typing.Dict[str, WaifuCache] = {}
         self._set_permissions_recursively("data/plugins/Waifu/", 0o777)
+        asyncio.create_task(self.initialize())
+        self.greeter = ProactiveGreeter(self.ap,self.host,
+                                        self.waifu_cache)  #插件初始化时创建proactive任务
+
 
     async def initialize(self):
-        # 为新用户创建配置文件
-        config_mgr = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu")
-        await config_mgr.load_config(completion=True)
-        await self._generator._initialize_model_config()
+        await super().initialize()
+        if hasattr(self, '_generator') and hasattr(self._generator, '_initialize_model_config'):
+            self.ap.logger.info("WaifuPlugin: Initializing Generator's model configuration...")
+            try:
+                config_mgr = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu")
+                await config_mgr.load_config(completion=True)
+                await self._generator._initialize_model_config()  # 主动调用初始化方法
+
+                if self._generator.selected_model_info:
+                    self.generator_model_ready = True
+                    self.ap.logger.info(
+                        f"WaifuPlugin: Generator model selected: {self._generator.selected_model_info.model_entity.name}")
+            except Exception as e:
+                self.ap.logger.error(f"WaifuPlugin: Error during Generator model initialization: {e}")
+                self.ap.logger.error(traceback.format_exc())
+        else:
+            self.ap.logger.error("WaifuPlugin: _generator or _generator._initialize_model_config not found!")
 
     async def destroy(self):
         self.ap.logger.warning("Waifu插件正在退出....")
-
-
-
+        await self.greeter.stop_main_task() #结束循环任务
     # @handler(NormalMessageResponded)
     # async def normal_message_responded(self, ctx: EventContext):
     #     self.ap.logger.info(f"LangGPT的NormalMessageResponded: {str(ctx.event.response_text)}。")
@@ -207,11 +236,11 @@ class WaifuPlugin(BasePlugin):
             await self._request_group_reply(ctx)
             ctx.prevent_default()  # 阻止 LangBot 的默认回复行为
 
-    async def _load_config(self, launcher_id: str, launcher_type: str):
+    async def _load_config(self, launcher_id: str, launcher_type: str):    ##加载配置
+
         self.waifu_cache[launcher_id] = WaifuCache(self.ap, launcher_id, launcher_type)
         cache = self.waifu_cache[launcher_id]
-
-        config_mgr = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu", launcher_id)
+        config_mgr = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu", launcher_id) #读取用户配置
         await config_mgr.load_config(completion=True)
 
         character = config_mgr.data.get("character", f"default")
@@ -240,6 +269,17 @@ class WaifuPlugin(BasePlugin):
         cache.langbot_group_rule = config_mgr.data.get("langbot_group_rule", False)
         cache.ignore_prefix = config_mgr.data.get("ignore_prefix", [])
 
+        cache.proactive_greeting_enabled = config_mgr.data.get("proactive_greeting_enabled", False)
+        cache.proactive_greeting_probability = config_mgr.data.get("proactive_greeting_probability", 0)
+        cache.proactive_min_inactive_hours = config_mgr.data.get("proactive_min_inactive_hours", 3.0)
+        cache.proactive_max_inactive_hours = config_mgr.data.get("proactive_max_inactive_hours", 4.0)
+        if cache.proactive_max_inactive_hours < cache.proactive_min_inactive_hours:
+            cache.proactive_max_inactive_hours = cache.proactive_min_inactive_hours
+        cache.proactive_do_not_disturb_start = config_mgr.data.get("proactive_do_not_disturb_start","23:00")
+        cache.proactive_do_not_disturb_end = config_mgr.data.get("proactive_do_not_disturb_end","08:00")
+        cache.loop_time = config_mgr.data.get("loop_time",1800)
+
+
         await cache.memory.load_config(character, launcher_id, launcher_type)
         await cache.value_game.load_config(character, launcher_id, launcher_type)
         await cache.cards.load_config(character, launcher_type)
@@ -248,8 +288,8 @@ class WaifuPlugin(BasePlugin):
         self._set_jail_break(cache, "off")
         if cache.jail_break_mode in ["before", "after", "end", "all"]:
             self._set_jail_break(cache, cache.jail_break_mode)
-
         self._set_permissions_recursively("data/plugins/Waifu/", 0o777)
+
 
     async def _handle_command(self, ctx: EventContext) -> typing.Tuple[bool, bool]:
         need_assistant_reply = False
@@ -506,14 +546,18 @@ class WaifuPlugin(BasePlugin):
         config.unreplied_count += 1
         await self._person_reply(ctx)
 
-    async def _person_reply(self, ctx: EventContext):
+    async def _person_reply(self, ctx: EventContext):   #私聊回复
         launcher_id = ctx.event.launcher_id
         config = self.waifu_cache[launcher_id]
 
+
         if config.unreplied_count > 0:
             if launcher_id not in self.waifu_cache or not config.response_timers_flag:
-                config.response_timers_flag = True
-                asyncio.create_task(self._delayed_person_reply(ctx))
+                if self.generator_model_ready:
+                    config.response_timers_flag = True
+                    asyncio.create_task(self._delayed_person_reply(ctx))  # 创建任务
+
+
 
     async def _delayed_person_reply(self, ctx: EventContext):
         launcher_id = ctx.event.launcher_id
@@ -521,7 +565,6 @@ class WaifuPlugin(BasePlugin):
         self.ap.logger.info(f"wait person {launcher_id} for {config.person_response_delay}s")
         await asyncio.sleep(config.person_response_delay)
         self.ap.logger.info(f"generating person {launcher_id} response")
-
         try:
             config.unreplied_count = 0
             if config.story_mode_flag:
@@ -553,7 +596,6 @@ class WaifuPlugin(BasePlugin):
             config.continued_count = 0
 
             config.response_timers_flag = False
-          #  await self._person_reply(ctx)  # 检查是否回复期间又满足响应条件 
 
         except Exception as e:
             self.ap.logger.error(f"Error occurred during person reply: {e}")
@@ -566,8 +608,8 @@ class WaifuPlugin(BasePlugin):
         config = self.waifu_cache[launcher_id]
         system_prompt = config.memory.to_custom_names(config.cards.generate_system_prompt())
         self._generator.set_speakers([config.memory.assistant_name])
-        response = await self._generator.return_chat(user_prompt, system_prompt)
-        await config.memory.save_memory(role="assistant", content=response)
+        response = await self._generator.return_chat(user_prompt, system_prompt)   #发消息
+        await config.memory.save_memory(role="assistant", content=response)  #存入消息对话
 
         if config.personate_mode:
             await self._send_personate_reply(ctx, response)
@@ -768,50 +810,50 @@ class WaifuPlugin(BasePlugin):
 
         config = self.waifu_cache[ctx.event.launcher_id]
         config.langbot_group_rule = True
-        await self._test_command(ctx, "测试群聊规则#你好") 
+        await self._test_command(ctx, "测试群聊规则#你好")
         config.langbot_group_rule = False
-        await self._test_command(ctx, "测试群聊规则#你好") 
+        await self._test_command(ctx, "测试群聊规则#你好")
         config.narrate_intervals = [3,5]
-        await self._test_command(ctx, "测试旁白#你好") 
+        await self._test_command(ctx, "测试旁白#你好")
         config.story_mode_flag = False
-        await self._test_command(ctx, "关闭故事模式#你好") 
+        await self._test_command(ctx, "关闭故事模式#你好")
         config.story_mode_flag = True
-        await self._test_command(ctx, "开启故事模式#你好") 
+        await self._test_command(ctx, "开启故事模式#你好")
         config.thinking_mode_flag = False
-        await self._test_command(ctx, "关闭思考模式#你好") 
+        await self._test_command(ctx, "关闭思考模式#你好")
         config.thinking_mode_flag = True
-        await self._test_command(ctx, "开启思考模式#你好") 
+        await self._test_command(ctx, "开启思考模式#你好")
         config.conversation_analysis_flag = False
         await self._test_command(ctx, "关闭会话分析#你好")
         config.conversation_analysis_flag = True
-        await self._test_command(ctx, "开启会话分析#你好") 
+        await self._test_command(ctx, "开启会话分析#你好")
         config.display_thinking = False
         await self._test_command(ctx, "关闭显示思考过程#你好")
         config.display_thinking = True
-        await self._test_command(ctx, "开启显示思考过程#你好") 
+        await self._test_command(ctx, "开启显示思考过程#你好")
         config.display_value = False
-        await self._test_command(ctx, "关闭显示数值#你好") 
+        await self._test_command(ctx, "关闭显示数值#你好")
         config.display_value = True
-        await self._test_command(ctx, "开启显示数值#你好") 
+        await self._test_command(ctx, "开启显示数值#你好")
         config.response_rate = 0
-        await self._test_command(ctx, "关闭回复#你好") 
+        await self._test_command(ctx, "关闭回复#你好")
         config.response_rate = 1
-        await self._test_command(ctx, "开启回复#你好") 
+        await self._test_command(ctx, "开启回复#你好")
         config.summarization_mode = False
         await self._test_command(ctx, "关闭总结模式#你好")
         config.summarization_mode = True
-        await self._test_command(ctx, "开启总结模式#你好") 
+        await self._test_command(ctx, "开启总结模式#你好")
         config.personate_mode = False
         await self._test_command(ctx, "关闭拟人模式#你好")
         config.personate_mode = True
-        await self._test_command(ctx, "开启拟人模式#你好") 
+        await self._test_command(ctx, "开启拟人模式#你好")
         config.jail_break_mode = "all"
         self._set_jail_break(config, config.jail_break_mode)
         await self._test_command(ctx, "手动书写“指定角色”发言#控制人物快递员|叮咚~有人在家吗，有你们的快递！")
         config.jail_break_mode = "off"
         self._set_jail_break(config, "off")
         config.personate_delay = 3
-        await self._test_command(ctx, "主动触发旁白推进剧情#旁白") 
+        await self._test_command(ctx, "主动触发旁白推进剧情#旁白")
         config.personate_delay = 0
         config.continued_rate = 1
         config.continued_max_count = 2
@@ -858,3 +900,7 @@ class WaifuPlugin(BasePlugin):
         for config in self.waifu_cache.values():
             if config.launcher_timer_tasks:
                 config.launcher_timer_tasks.cancel()
+
+
+
+

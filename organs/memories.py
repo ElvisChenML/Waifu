@@ -1,10 +1,13 @@
+import asyncio
+import traceback
 import typing
 import numpy as np
 import json
 import os
 import re
 import math
-from datetime import datetime, timedelta
+from datetime import datetime
+
 from pkg.core import app
 from collections import Counter,defaultdict
 from plugins.Waifu.cells.text_analyzer import TextAnalyzer
@@ -155,6 +158,27 @@ class Memory:
         self._last_l3_recall_memories = []
         self._last_l4_recall_memories = []
         self._last_l5_recall_memories = []
+        self.generator_model_ready = False
+        asyncio.create_task(self.initialize())
+        
+        
+    async def initialize(self):
+        if hasattr(self, '_generator') and hasattr(self._generator, '_initialize_model_config'):
+            self.ap.logger.info("Memory：: Initializing Generator's model configuration...")
+            try:
+                await self._generator._initialize_model_config()  # 主动调用初始化方法
+                if self._generator.selected_model_info:
+                    self.ap.logger.info(
+                        f"Memory：: Generator model selected: {self._generator.selected_model_info.model_entity.name}")
+
+                self.generator_model_ready = True
+
+            except Exception as e:
+                self.ap.logger.error(f"Memory：: Error during Generator model initialization: {e}")
+                self.ap.logger.error(traceback.format_exc())
+        else:
+            self.ap.logger.error("Memory：: _generator or _generator._initialize_model_config not found!")
+
 
     async def load_config(self, character: str, launcher_id: str, launcher_type: str):
         waifu_config = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu", launcher_id)
@@ -199,13 +223,18 @@ class Memory:
         # 生成Tags：
         # 1、短期记忆转换长期记忆时：进行记忆总结
         # 2、对话提取记忆时：直接拼凑末尾对话
-        if summary_flag:
-            (memory,tags) = await self._generate_summary(conversations)
-            return (memory,tags)
+        if self.generator_model_ready:
+            if summary_flag:
+                (memory,tags) = await self._generate_summary(conversations)
+                return (memory,tags)
 
-        memory = self.get_last_content(conversations,10)
-        tags = await self._generate_tags(memory)
-        return (memory, tags)
+            memory = self.get_last_content(conversations,10)
+            tags = await self._generate_tags(memory)
+            return (memory, tags)
+        else:
+            self.ap.logger.warning(f"Error generator_model_ready is not ready!")
+            return ("", [])
+
 
     def _remove_prefix_suffix_from_tag(self,tag:str) ->str:
         t = tag.replace("\"","").replace("\"","").replace("[","").replace("]","").replace("\n","")
@@ -219,16 +248,20 @@ class Memory:
         return t
 
     def _get_tags_from_str_array(self,tag_word:str) ->typing.List[str]:
-        tag_words = tag_word.removeprefix("[").removesuffix("]").split(",")
-        result = []
-        for tag in tag_words:
-            t = self._remove_prefix_suffix_from_tag(tag)
-            if t == "":
-                continue
-            if t.count(":") == 0 and t.isalnum():
-                t = t.lower()
-            result.append(t)
-        return result
+        if self.generator_model_ready:
+            tag_words = tag_word.removeprefix("[").removesuffix("]").split(",")
+            result = []
+            for tag in tag_words:
+                t = self._remove_prefix_suffix_from_tag(tag)
+                if t == "":
+                    continue
+                if t.count(":") == 0 and t.isalnum():
+                    t = t.lower()
+                result.append(t)
+            return result
+        else:
+            self.ap.logger.warning(f"Error generator_model_ready is not ready!")
+            return []
 
     async def _generate_tags(self,conversation:str) -> typing.List[str]:
         conversation = conversation.replace("{","").replace("}","")
@@ -1591,6 +1624,48 @@ class Memory:
             conversations_str += f"{date_time_str}{role}说：“{content}”。"
 
         return conversations_str
+
+
+    def get_lastest_time(self, conversations: typing.List[llm_entities.Message]):
+        if not conversations:  # 先检查列表是否为空
+            return None  # 或者抛出异常，或者返回一个特定的“未找到”值
+
+        last_message_object = conversations[-1]  # 获取最后一个 Message 对象
+
+        if not hasattr(last_message_object, 'content') or not isinstance(last_message_object.content, str):
+            # 如果最后一个消息没有 content 属性，或者 content 不是字符串
+            return None
+
+        last_message_content_str = last_message_object.content  # 获取其 content 字符串
+        date_time_pattern = re.compile(r"\[(\d{2})年(\d{2})月(\d{2})日(上午|下午)?(\d{2})时(\d{2})分]")
+        match_obj = date_time_pattern.search(last_message_content_str)  # 使用 search 在整个字符串中查找
+        if not match_obj:
+            self.ap.logger.error(f"DEBUG get_latest_time: No time pattern found in content: '{last_message_content_str}'")
+            return None  # 没有找到匹配的时间字符串
+
+        year_yy_str = match_obj.group(1)
+        month_str = match_obj.group(2)
+        day_str = match_obj.group(3)
+        am_pm_indicator = match_obj.group(4)  # 可能为 None
+        hour_str = match_obj.group(5)
+        minute_str = match_obj.group(6)
+        year_yy = int(year_yy_str)  # "25"
+        month = int(month_str)  # "05"
+        day = int(day_str)  # "29"
+        hour_from_str = int(hour_str)  # "21"
+        minute = int(minute_str)  # "00"
+        full_year = 2000 + year_yy
+        hour_24 = hour_from_str
+        if am_pm_indicator == "上午":
+            if hour_from_str == 12:  # 上午12点 (midnight) -> 0点
+                hour_24 = 0
+        elif am_pm_indicator == "下午":
+            if hour_from_str < 12:  # 下午1点 (13时) 到 下午11点 (23时)
+                hour_24 = hour_from_str + 12
+
+        parsed_datetime = datetime(full_year, month, day, hour_24, minute, 0)
+        return parsed_datetime
+
 
     def get_unreplied_msg(self, unreplied_count: int) -> typing.Tuple[int, typing.List[llm_entities.Message]]:
         count = 0  # 未回复的数量 + 穿插的自己发言的数量 用以正确区分 replied 及 unreplied 分界线
