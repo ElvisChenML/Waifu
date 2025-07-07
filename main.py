@@ -731,7 +731,7 @@ class WaifuPlugin(BasePlugin):
         else:
             self.ap.logger.warning("query.pipeline_config is None, using empty prompt for get_conversation.")
 
-        conversation = await self.ap.sess_mgr.get_conversation(query, session, prompt_config_from_pipeline)
+        conversation = await self.ap.sess_mgr.get_conversation(query, session, prompt_config_from_pipeline,query.pipeline_uuid,query.bot_uuid)
 
         use_model = conversation.use_llm_model # Changed from conversation.use_model
 
