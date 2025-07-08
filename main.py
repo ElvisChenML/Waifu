@@ -63,7 +63,7 @@ class WaifuCache:
 
     ap: app.Application
 
-    def __init__(self, host: APIHost, ap: app.Application, launcher_id: str, launcher_type: str):
+    def __init__(self, ap: app.Application, launcher_id: str, launcher_type: str):
         self.launcher_id = launcher_id
         self.launcher_type = launcher_type
         self.langbot_group_rule = False
@@ -72,7 +72,7 @@ class WaifuCache:
         self.cards = Cards(ap)
         self.narrator = Narrator(ap, launcher_id)
         self.thoughts = Thoughts(ap)
-        self.proactive = ProactiveGreeter(host, ap, launcher_id)
+        self.proactive = ProactiveGreeter(ap, launcher_id)
         self.conversation_analysis_flag = True
         self.thinking_mode_flag = True
         self.story_mode_flag = True
@@ -229,7 +229,7 @@ class WaifuPlugin(BasePlugin):
 
     async def _load_config(self, launcher_id: str, launcher_type: str):    ##加载配置
 
-        self.waifu_cache[launcher_id] = WaifuCache(self.host, self.ap, launcher_id, launcher_type)
+        self.waifu_cache[launcher_id] = WaifuCache(self.ap, launcher_id, launcher_type)
         cache = self.waifu_cache[launcher_id]
         config_mgr = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu", launcher_id) #读取用户配置
         await config_mgr.load_config(completion=True)
@@ -775,7 +775,7 @@ class WaifuPlugin(BasePlugin):
 
     async def _test(self, ctx: EventContext):
         # 保存当前配置状态
-        original_config = WaifuCache(self.host, self.ap, ctx.event.launcher_id, ctx.event.launcher_type)
+        original_config = WaifuCache(self.ap, ctx.event.launcher_id, ctx.event.launcher_type)
         current_cache = self.waifu_cache.get(ctx.event.launcher_id)
         if current_cache:
             # 深拷贝可变对象，如列表和字典

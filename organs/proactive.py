@@ -9,7 +9,6 @@ import random
 from pkg.core import app
 from pkg.platform.sources.aiocqhttp import AiocqhttpAdapter
 from pkg.platform.types import message as platform_message
-from pkg.plugin.context import APIHost
 from plugins.Waifu.cells.generator import Generator
 from plugins.Waifu.cells.config import ConfigManager
 from plugins.Waifu.organs.memories import Memory
@@ -18,9 +17,8 @@ from plugins.Waifu.organs.memories import Memory
 class ProactiveGreeter:
     ap: app.Application
 
-    def __init__(self, host: APIHost, ap: app.Application, launcher_id: str):
+    def __init__(self, ap: app.Application, launcher_id: str):
         self.ap = ap
-        self.host = host
         self._generator = Generator(ap)
 
         self._main_task: typing.Optional[asyncio.Task] = None   #loop状态
@@ -34,15 +32,6 @@ class ProactiveGreeter:
         self._proactive_do_not_disturb_start = "23:00"
         self._proactive_do_not_disturb_end = "8:00"
         self._loop_time = 1800
-
-        enabled_adapters = self.host.get_platform_adapters()
-        for adapter in enabled_adapters:
-            if isinstance(adapter, AiocqhttpAdapter):  # 选择qq适配器
-                self._first_adapter = adapter
-                self.ap.logger.info(f"获取到qqapdater :{self._first_adapter}")
-                break
-            else:
-                self.ap.logger.error(f"Can't find apdater for qq!!")
 
     async def load_config(self, memory: Memory):
         waifu_config = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu", self._launcher_id)
@@ -60,7 +49,16 @@ class ProactiveGreeter:
         self._loop_time = waifu_config.data.get("loop_time",1800)
 
         if self._proactive_greeting_enabled and self._summarization_mode and self._proactive_target_user_id != "off" and self._proactive_target_user_id != "":
-            self.ap.logger.info(f"ProactiveGreeter: 配置加载完成，启动主动问候")
+            self.ap.logger.info(f"ProactiveGreeter: 配置加载完成，启动主动问候")            
+            enabled_adapters = self.ap.platform_mgr.get_running_adapters()
+            for adapter in enabled_adapters:
+                if isinstance(adapter, AiocqhttpAdapter):  # 选择qq适配器
+                    self._first_adapter = adapter
+                    self.ap.logger.info(f"获取到qqapdater :{self._first_adapter}")
+                    break
+                else:
+                    self.ap.logger.info(f"ProactiveGreeter: 配置加载完成，主动消息仅支援QQ适配器。")
+                    return
             asyncio.create_task(self.activate())
         else:
             self.ap.logger.info(f"ProactiveGreeter: 配置加载完成，不满足启动条件。")
