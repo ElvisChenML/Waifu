@@ -33,7 +33,7 @@ class ProactiveGreeter:
         self._proactive_do_not_disturb_end = "8:00"
         self._loop_time = 1800
 
-    async def load_config(self, memory: Memory):
+    async def load_config(self, memory: Memory, summary_mode: bool = False):
         waifu_config = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu", self._launcher_id)
         await waifu_config.load_config(completion=True)
         self._memory = memory
@@ -48,7 +48,7 @@ class ProactiveGreeter:
         self._proactive_do_not_disturb_end = waifu_config.data.get("proactive_do_not_disturb_end","08:00")
         self._loop_time = waifu_config.data.get("loop_time",1800)
 
-        if self._proactive_greeting_enabled and self._summarization_mode and self._proactive_target_user_id != "off" and self._proactive_target_user_id != "":
+        if self._proactive_greeting_enabled and summary_mode and self._proactive_target_user_id != "off" and self._proactive_target_user_id != "":
             self.ap.logger.info(f"ProactiveGreeter: 配置加载完成，启动主动问候")            
             enabled_adapters = self.ap.platform_mgr.get_running_adapters()
             for adapter in enabled_adapters:
