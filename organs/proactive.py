@@ -11,6 +11,7 @@ from pkg.platform.sources.aiocqhttp import AiocqhttpAdapter
 from pkg.platform.types import message as platform_message
 from plugins.Waifu.cells.generator import Generator
 from plugins.Waifu.cells.config import ConfigManager
+from plugins.Waifu.organs.memories import Memory
 
 
 class ProactiveGreeter:
@@ -22,6 +23,7 @@ class ProactiveGreeter:
 
         self._main_task: typing.Optional[asyncio.Task] = None   #loop状态
         self._first_adapter: typing.Optional[AiocqhttpAdapter] = None
+        self._memory = None
         self._launcher_id = launcher_id
         self._proactive_target_user_id = "off"
         self._proactive_greeting_enabled: bool = False
@@ -40,9 +42,10 @@ class ProactiveGreeter:
             else:
                 self.ap.logger.error(f"Can't find apdater for qq!!")
 
-    async def load_config(self):
+    async def load_config(self, memory: Memory):
         waifu_config = ConfigManager(f"data/plugins/Waifu/config/waifu", "plugins/Waifu/templates/waifu", self._launcher_id)
         await waifu_config.load_config(completion=True)
+        self._memory = memory
         self._proactive_target_user_id = waifu_config.data.get("proactive_target_user_id", "off")
         self._proactive_greeting_enabled = waifu_config.data.get("proactive_greeting_enabled", False)
         self._proactive_greeting_probability = waifu_config.data.get("proactive_greeting_probability", 0)

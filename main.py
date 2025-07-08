@@ -264,7 +264,7 @@ class WaifuPlugin(BasePlugin):
         await cache.value_game.load_config(character, launcher_id, launcher_type)
         await cache.cards.load_config(character, launcher_type)
         await cache.narrator.load_config()
-        await cache.proactive.load_config()
+        await cache.proactive.load_config(cache.memory)
 
         self._set_jail_break(cache, "off")
         if cache.jail_break_mode in ["before", "after", "end", "all"]:
