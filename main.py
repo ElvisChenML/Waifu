@@ -24,8 +24,8 @@ from plugins.Waifu.organs.memories import Memory
 from plugins.Waifu.systems.narrator import Narrator
 from plugins.Waifu.systems.value_game import ValueGame
 from plugins.Waifu.organs.thoughts import Thoughts
-from pkg.platform.types.message import MessageChain, Plain, logger
 from plugins.Waifu.organs.proactive import ProactiveGreeter
+from pkg.platform.types.message import MessageChain, Plain, logger
 
 
 COMMANDS = {
@@ -72,6 +72,7 @@ class WaifuCache:
         self.cards = Cards(ap)
         self.narrator = Narrator(ap, launcher_id)
         self.thoughts = Thoughts(ap)
+        self.proactive = ProactiveGreeter(ap, launcher_id)
         self.conversation_analysis_flag = True
         self.thinking_mode_flag = True
         self.story_mode_flag = True
@@ -95,12 +96,6 @@ class WaifuCache:
         self.group_message_chain = None
         self.blacklist = []
         self.ignore_prefix = []
-        self.proactive_greeting_enabled: bool = False
-        self.proactive_greeting_probability: int = 0
-        self.proactive_min_inactive_hours = 3.0
-        self.proactive_do_not_disturb_start = "23:00"
-        self.proactive_do_not_disturb_end = "8:00"
-        self.loop_time = 1800
 
 @runner.runner_class("waifu-mode")
 class WaifuRunner(runner.RequestRunner):
@@ -123,9 +118,6 @@ class WaifuPlugin(BasePlugin):
         self.waifu_cache: typing.Dict[str, WaifuCache] = {}
         self._set_permissions_recursively("data/plugins/Waifu/", 0o777)
         asyncio.create_task(self.initialize())
-        self.greeter = ProactiveGreeter(self.ap,self.host,
-                                        self.waifu_cache)  #插件初始化时创建proactive任务
-
 
     async def initialize(self):
         await super().initialize()
@@ -148,7 +140,6 @@ class WaifuPlugin(BasePlugin):
 
     async def destroy(self):
         self.ap.logger.warning("Waifu插件正在退出....")
-        await self.greeter.stop_main_task() #结束循环任务
     # @handler(NormalMessageResponded)
     # async def normal_message_responded(self, ctx: EventContext):
     #     self.ap.logger.info(f"LangGPT的NormalMessageResponded: {str(ctx.event.response_text)}。")
@@ -269,27 +260,16 @@ class WaifuPlugin(BasePlugin):
         cache.langbot_group_rule = config_mgr.data.get("langbot_group_rule", False)
         cache.ignore_prefix = config_mgr.data.get("ignore_prefix", [])
 
-        cache.proactive_greeting_enabled = config_mgr.data.get("proactive_greeting_enabled", False)
-        cache.proactive_greeting_probability = config_mgr.data.get("proactive_greeting_probability", 0)
-        cache.proactive_min_inactive_hours = config_mgr.data.get("proactive_min_inactive_hours", 3.0)
-        cache.proactive_max_inactive_hours = config_mgr.data.get("proactive_max_inactive_hours", 4.0)
-        if cache.proactive_max_inactive_hours < cache.proactive_min_inactive_hours:
-            cache.proactive_max_inactive_hours = cache.proactive_min_inactive_hours
-        cache.proactive_do_not_disturb_start = config_mgr.data.get("proactive_do_not_disturb_start","23:00")
-        cache.proactive_do_not_disturb_end = config_mgr.data.get("proactive_do_not_disturb_end","08:00")
-        cache.loop_time = config_mgr.data.get("loop_time",1800)
-
-
         await cache.memory.load_config(character, launcher_id, launcher_type)
         await cache.value_game.load_config(character, launcher_id, launcher_type)
         await cache.cards.load_config(character, launcher_type)
         await cache.narrator.load_config()
+        await cache.proactive.load_config()
 
         self._set_jail_break(cache, "off")
         if cache.jail_break_mode in ["before", "after", "end", "all"]:
             self._set_jail_break(cache, cache.jail_break_mode)
         self._set_permissions_recursively("data/plugins/Waifu/", 0o777)
-
 
     async def _handle_command(self, ctx: EventContext) -> typing.Tuple[bool, bool]:
         need_assistant_reply = False
@@ -550,14 +530,11 @@ class WaifuPlugin(BasePlugin):
         launcher_id = ctx.event.launcher_id
         config = self.waifu_cache[launcher_id]
 
-
         if config.unreplied_count > 0:
             if launcher_id not in self.waifu_cache or not config.response_timers_flag:
                 if self.generator_model_ready:
                     config.response_timers_flag = True
                     asyncio.create_task(self._delayed_person_reply(ctx))  # 创建任务
-
-
 
     async def _delayed_person_reply(self, ctx: EventContext):
         launcher_id = ctx.event.launcher_id
@@ -900,7 +877,3 @@ class WaifuPlugin(BasePlugin):
         for config in self.waifu_cache.values():
             if config.launcher_timer_tasks:
                 config.launcher_timer_tasks.cancel()
-
-
-
-
