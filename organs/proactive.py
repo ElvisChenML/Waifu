@@ -9,6 +9,7 @@ import random
 from pkg.core import app
 from pkg.platform.sources.aiocqhttp import AiocqhttpAdapter
 from pkg.platform.types import message as platform_message
+from pkg.plugin.context import APIHost
 from plugins.Waifu.cells.generator import Generator
 from plugins.Waifu.cells.config import ConfigManager
 from plugins.Waifu.organs.memories import Memory
@@ -17,8 +18,9 @@ from plugins.Waifu.organs.memories import Memory
 class ProactiveGreeter:
     ap: app.Application
 
-    def __init__(self, ap: app.Application, launcher_id: str):
+    def __init__(self, host: APIHost, ap: app.Application, launcher_id: str):
         self.ap = ap
+        self.host = host
         self._generator = Generator(ap)
 
         self._main_task: typing.Optional[asyncio.Task] = None   #loop状态
