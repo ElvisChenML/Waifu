@@ -186,7 +186,8 @@ class WaifuPlugin(BasePlugin):
             return False
 
         # 排除主项目命令
-        cmd_prefix = self.ap.instance_config.data.get("command", {}).get("command-prefix", [])
+        # cmd_prefix = self.ap.instance_config.data.get("command", {}).get("command-prefix", [])
+        cmd_prefix = self.ap.instance_config.data.get("command", {}).get("prefix", [])
         if any(text_message.startswith(prefix) for prefix in cmd_prefix):
             return False
 
