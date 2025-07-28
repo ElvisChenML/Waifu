@@ -1,4 +1,5 @@
 import asyncio
+import cmd
 import datetime
 import json
 import traceback
@@ -186,9 +187,20 @@ class WaifuPlugin(BasePlugin):
             return False
 
         # 排除主项目命令
-        # cmd_prefix = self.ap.instance_config.data.get("command", {}).get("command-prefix", [])
         cmd_prefix = self.ap.instance_config.data.get("command", {}).get("prefix", [])
-        if any(text_message.startswith(prefix) for prefix in cmd_prefix):
+        # 去除@符号后检查命令前缀
+        clean_message = text_message
+        if '@' in text_message:
+            # 找到最后一个@符号后的内容
+            parts = text_message.split('@')
+            if len(parts) > 1:
+                # 取最后一部分，去除可能的用户ID
+                last_part = parts[-1]
+                # 找到空格后的内容作为实际消息
+                if ' ' in last_part:
+                    clean_message = last_part.split(' ', 1)[1].strip()
+        
+        if any(clean_message.startswith(prefix) for prefix in cmd_prefix):
             return False
 
         # 排除特定前缀
@@ -207,6 +219,12 @@ class WaifuPlugin(BasePlugin):
         if not await self._access_control_check(ctx):
             return
 
+        # 检查是否为主程序命令，如果是则直接返回让主程序处理
+        text_message = str(ctx.event.query.message_chain)
+        cmd_prefix = self.ap.instance_config.data.get("command", {}).get("prefix", [])
+        if any(text_message.startswith(prefix) for prefix in cmd_prefix):
+            return  # 让主程序处理命令
+
         need_assistant_reply, need_save_memory = await self._handle_command(ctx)
         if need_assistant_reply:
             await self._request_person_reply(ctx, need_save_memory)
@@ -222,6 +240,17 @@ class WaifuPlugin(BasePlugin):
         # 在GroupNormalMessageReceived的ctx.event.query.message_chain会将At移除
         # 所以这在经过主项目处理前先进行备份
         self.waifu_cache[ctx.event.launcher_id].group_message_chain = copy.deepcopy(ctx.event.query.message_chain)
+
+        is_mentioned = False
+        if self.waifu_cache[ctx.event.launcher_id].group_message_chain:
+            is_mentioned = self.waifu_cache[ctx.event.launcher_id].group_message_chain.has(platform_message.At(ctx.event.query.adapter.bot_account_id))
+        
+        if is_mentioned:
+            # 检查是否为主程序命令，如果是则直接返回让主程序处理
+            text_message = str(ctx.event.query.message_chain)
+            cmd_prefix = self.ap.instance_config.data.get("command", {}).get("prefix", [])
+            if any(text_message.startswith(prefix) for prefix in cmd_prefix):
+                return  # 让主程序处理命令
 
         need_assistant_reply, _ = await self._handle_command(ctx)
         if need_assistant_reply:
@@ -280,7 +309,12 @@ class WaifuPlugin(BasePlugin):
         config = self.waifu_cache[launcher_id]
         msg = str(ctx.event.query.message_chain)
         self.ap.logger.info(f"Waifu处理消息:{msg}")
-
+        
+        # 检查是否为主程序命令，如果是则不处理
+        cmd_prefix = self.ap.instance_config.data.get("command", {}).get("prefix", [])
+        if any(msg.startswith(prefix) for prefix in cmd_prefix):
+            return False, False
+        
         if msg.startswith("请设计"):
             content = msg[3:].strip()
             response = await self._generator.return_list(content)
@@ -400,7 +434,7 @@ class WaifuPlugin(BasePlugin):
         return need_assistant_reply, need_save_memory
 
     def _list_commands(self) -> str:
-        return "\n\n".join([f"{cmd}: {desc}" for cmd, desc in COMMANDS.items()])
+        return "\n".join([f"{cmd}: {desc}" for cmd, desc in COMMANDS.items()])
 
     def _stop_timer(self, launcher_id: str):
         if launcher_id in self.waifu_cache and self.waifu_cache[launcher_id].launcher_timer_tasks:
